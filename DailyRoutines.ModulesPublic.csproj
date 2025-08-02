@@ -1,5 +1,5 @@
 ﻿<Project Sdk="Dalamud.CN.NET.Sdk/12.0.2">
-    
+
     <PropertyGroup>
         <Authors>AtmoOmen</Authors>
         <Version>1.0.0.0</Version>
@@ -42,84 +42,33 @@
 
     <ItemGroup>
         <PackageReference Include="DailyRoutines.CodeAnalysis" Version="1.2.0">
-          <PrivateAssets>all</PrivateAssets>
-          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="System.CodeDom" Version="9.0.1" />
     </ItemGroup>
 
-    <PropertyGroup>
-        <DailyRoutinesPath>C:\Users\stxin\AppData\Roaming\XIVLauncherCN\installedPlugins\DailyRoutines\1.7.4.1\</DailyRoutinesPath>
-    </PropertyGroup>
-
     <ItemGroup>
         <Reference Include="DailyRoutines">
-            <HintPath>$(DailyRoutinesPath)\DailyRoutines.dll</HintPath>
+            <HintPath>$(BaseOutputPath)\$(Configuration)\DailyRoutines.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="TinyPinyin">
-            <HintPath>$(DailyRoutinesPath)\TinyPinyin.dll</HintPath>
+            <HintPath>$(BaseOutputPath)\$(Configuration)\TinyPinyin.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="OmenTools">
-            <HintPath>$(DailyRoutinesPath)\OmenTools.dll</HintPath>
+            <HintPath>$(BaseOutputPath)\$(Configuration)\OmenTools.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="EdgeTTS">
-            <HintPath>$(DailyRoutinesPath)\EdgeTTS.dll</HintPath>
+            <HintPath>$(BaseOutputPath)\$(Configuration)\EdgeTTS.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="KamiToolKit">
-            <HintPath>$(DailyRoutinesPath)\KamiToolKit.dll</HintPath>
+            <HintPath>$(BaseOutputPath)\$(Configuration)\KamiToolKit.dll</HintPath>
             <Private>false</Private>
         </Reference>
-    </ItemGroup>
-
-    <ItemGroup>
-      <Compile Remove="Notice\**" />
-      <Compile Remove="Combat\**" />
-      <Compile Remove="UIOptimization\**" />
-      <Compile Remove="Assist\**" />
-      <Compile Remove="UIOperation\**" />
-      <Compile Remove="General\**" />
-      <Compile Remove="System\**" />
-      <Compile Remove="Action\AutoAethericMimicry.cs" />
-      <Compile Remove="Action\AutoCancelCast.cs" />
-      <Compile Remove="Action\AutoCancelStarContributor.cs" />
-      <Compile Remove="Action\AutoChakraFormShift.cs" />
-      <Compile Remove="Action\AutoDance.cs" />
-      <Compile Remove="Action\AutoDrawMotifs.cs" />
-      <Compile Remove="Action\AutoGathererRoleActions.cs" />
-      <Compile Remove="Action\AutoHolmgangSelf.cs" />
-      <Compile Remove="Action\AutoLucidDreaming.cs" />
-      <Compile Remove="Action\AutoManageInterruptAction.cs" />
-      <Compile Remove="Action\AutoManagePeloton.cs" />
-      <Compile Remove="Action\AutoPeloton.cs" />
-      <Compile Remove="Action\AutoPetFollow.cs" />
-      <Compile Remove="Action\AutoPreventDuplicateStatus.cs" />
-      <Compile Remove="Action\AutoReplaceActionLowLevel.cs" />
-      <Compile Remove="Action\AutoReplaceLocationAction.cs" />
-      <Compile Remove="Action\AutoReplaceLowBlowWithInterject.cs" />
-      <Compile Remove="Action\AutoSoulsow.cs" />
-      <Compile Remove="Action\AutoStellarSprint.cs" />
-      <Compile Remove="Action\AutoSummonPet.cs" />
-      <Compile Remove="Action\AutoTankStance.cs" />
-      <Compile Remove="Action\AutoThrottleTenChiJin.cs" />
-      <Compile Remove="Action\AutoUseCrafterGathererManual.cs" />
-      <Compile Remove="Action\AutoUseEarthsReply.cs" />
-      <Compile Remove="Action\BanEscToCancelCast.cs" />
-      <Compile Remove="Action\HealerHelper.cs" />
-      <Compile Remove="Action\MacroIntoActionQueue.cs" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <EmbeddedResource Remove="Notice\**" />
-      <EmbeddedResource Remove="Combat\**" />
-      <EmbeddedResource Remove="UIOptimization\**" />
-      <EmbeddedResource Remove="Assist\**" />
-      <EmbeddedResource Remove="UIOperation\**" />
-      <EmbeddedResource Remove="General\**" />
-      <EmbeddedResource Remove="System\**" />
     </ItemGroup>
 
 </Project>
