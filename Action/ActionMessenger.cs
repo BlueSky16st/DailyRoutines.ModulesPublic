@@ -8,6 +8,7 @@ using DailyRoutines.Helpers;
 using DailyRoutines.Managers;
 using DailyRoutines.Widgets;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using Newtonsoft.Json;
 using LuminaAction = Lumina.Excel.Sheets.Action;
 
@@ -17,8 +18,8 @@ public class ActionMessenger : DailyModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title = GetLoc("MessageOnSkillUseTitle"),
-        Description = GetLoc("MessageOnSkillUseDescription"),
+        Title = "使用技能时发言",
+        Description = "你可以配置在使用技能时发送消息到小队频道, 可以配置不同的消息, 我会在其中随机挑选一条进行发送",
         Category = ModuleCategories.Action,
         Author = ["Hsin"]
     };
@@ -29,10 +30,7 @@ public class ActionMessenger : DailyModuleBase
 
     private static ModuleStorage ModuleConfig = null!;
 
-    private static string GetStr(string msg, string? id = null)
-    {
-        return GetLoc(msg) + (id != null ? $"##Moku-{id}" : "");
-    }
+    private static string GetStr(string msg, string? id = null) => GetLoc(msg) + (id != null ? $"##am-{id}" : "");
 
     #region Init
 
@@ -41,24 +39,29 @@ public class ActionMessenger : DailyModuleBase
         ModuleConfig = LoadConfig<ModuleStorage>() ?? new ModuleStorage();
 
         // 初始化配置名称列表
-        configNames = ModuleConfig.ConfigNames ?? [];
+        configNames = ModuleConfig.Configurations.Select(p => p.Key).ToList();
 
         FetchActions().Wait();
 
-        UseActionManager.RegUseAction(PostUseActionDelegate);
-        // UseActionManager.RegUseActionLocation(PostUseActionLocationDelegate);
+        UseActionManager.RegPreCharacterCompleteCast(PreCharacterCompleteCast);
+        // UseActionManager.RegCharacterCompleteCast(PostCharacterCompleteCast);
+        // UseActionManager.RegUseAction(PostUseAction);
+        // UseActionManager.RegUseActionLocation(PostUseActionLocation);
     }
 
     protected override void Uninit()
     {
-        UseActionManager.UnregUseAction(PostUseActionDelegate);
-        // UseActionManager.UnregUseActionLocation(PostUseActionLocationDelegate);
+        UseActionManager.UnregPreCharacterCompleteCast(PreCharacterCompleteCast);
+        // UseActionManager.UnregCharacterCompleteCast(PostCharacterCompleteCast);
+        // UseActionManager.UnregUseAction(PostUseAction);
+        // UseActionManager.UnregUseActionLocation(PostUseActionLocation);
     }
 
     #endregion
 
     #region UI
 
+    private string json = "";
     private static ActionSelectCombo? ActionSelect;
     private int selectedConfigIndex = -1;
     private string newConfigName = "";
@@ -69,10 +72,7 @@ public class ActionMessenger : DailyModuleBase
     private int renameConfigIndex = -1;
     private string renameConfigName = "";
 
-    protected override void ConfigUI()
-    {
-        ConfigureActionUI();
-    }
+    protected override void ConfigUI() => ConfigureActionUI();
 
     private void ConfigureActionUI()
     {
@@ -87,13 +87,13 @@ public class ActionMessenger : DailyModuleBase
         var chatType = ModuleConfig.ChatTypeConfig;
         if (ImGui.BeginCombo("##ChatType", GetChatTypePreview(chatType)))
         {
-            if (ImGui.Selectable(GetStr("Say"), chatType == ChatType.Say))
+            if (ImGui.Selectable(GetStr("说话"), chatType == ChatType.Say))
                 ModuleConfig.ChatTypeConfig = ChatType.Say;
 
-            if (ImGui.Selectable(GetStr("Party"), chatType == ChatType.Party))
+            if (ImGui.Selectable(GetStr("小队"), chatType == ChatType.Party))
                 ModuleConfig.ChatTypeConfig = ChatType.Party;
 
-            if (ImGui.Selectable(GetStr("Echo"), chatType == ChatType.Echo))
+            if (ImGui.Selectable(GetStr("默语"), chatType == ChatType.Echo))
                 ModuleConfig.ChatTypeConfig = ChatType.Echo;
 
             ImGui.EndCombo();
@@ -160,7 +160,7 @@ public class ActionMessenger : DailyModuleBase
                         configNames.Add(newConfigName);
                         showAddDialog = false;
                         newConfigName = "";
-                        ModuleConfig.ConfigNames = configNames;
+                        ModuleConfig.Configurations[newConfigName] = new ConfigData();
                         SaveConfig(ModuleConfig);
                     }
                 }
@@ -185,11 +185,11 @@ public class ActionMessenger : DailyModuleBase
             var configName = configNames[i];
             ImGui.PushID(i);
             ImGui.PushStyleColor(ImGuiCol.Header, selectedConfigIndex == i
-                ? new Vector4(0.18f, 0.28f, 0.45f, 0.85f)
-                : new Vector4(0.7f, 0.8f, 0.9f, 0.7f));
+                                                      ? new Vector4(0.18f, 0.28f, 0.45f, 0.85f)
+                                                      : new Vector4(0.7f, 0.8f, 0.9f, 0.7f));
             ImGui.PushStyleColor(ImGuiCol.Text, selectedConfigIndex == i
-                ? new Vector4(0.95f, 0.98f, 1.0f, 1.0f)
-                : new Vector4(0.7f, 0.8f, 0.9f, 1.0f));
+                                                    ? new Vector4(0.95f, 0.98f, 1.0f, 1.0f)
+                                                    : new Vector4(0.7f, 0.8f, 0.9f, 1.0f));
             ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0.22f, 0.32f, 0.55f, 0.7f));
             if (ImGui.Selectable(GetStr(configName, $"Config{i}"), selectedConfigIndex == i))
                 selectedConfigIndex = i;
@@ -214,7 +214,6 @@ public class ActionMessenger : DailyModuleBase
                         selectedConfigIndex = -1;
                     else if (selectedConfigIndex > i)
                         selectedConfigIndex--;
-                    ModuleConfig.ConfigNames = configNames;
                     SaveConfig(ModuleConfig);
                 }
 
@@ -232,8 +231,9 @@ public class ActionMessenger : DailyModuleBase
         {
             ImGui.SetNextWindowSize(new Vector2(320, 140));
             if (ImGui.Begin(GetStr("重命名配置", "RenameConfigDialog"), ref showRenameDialog,
-                    ImGuiWindowFlags.NoResize | ImGuiWindowFlags.AlwaysAutoResize))
+                            ImGuiWindowFlags.NoResize | ImGuiWindowFlags.AlwaysAutoResize))
             {
+                var originalName = configNames[renameConfigIndex];
                 ImGui.Text(GetStr("新名称") + ":");
                 ImGui.InputText("##RenameConfigName", ref renameConfigName, 256);
                 ImGui.Spacing();
@@ -241,10 +241,12 @@ public class ActionMessenger : DailyModuleBase
                 ImGui.Spacing();
                 if (ImGui.Button(GetStr("确认", "ConfirmRename"), new Vector2(80, 0)))
                 {
-                    if (!string.IsNullOrWhiteSpace(renameConfigName) && !configNames.Contains(renameConfigName))
+                    if (!string.IsNullOrWhiteSpace(renameConfigName) && renameConfigName != originalName && !configNames.Contains(renameConfigName))
                     {
                         configNames[renameConfigIndex] = renameConfigName;
-                        ModuleConfig.ConfigNames = configNames;
+                        ModuleConfig.Configurations[renameConfigName] = ModuleConfig.Configurations[originalName];
+                        ModuleConfig.Configurations.Remove(originalName);
+
                         SaveConfig(ModuleConfig);
                         showRenameDialog = false;
                     }
@@ -252,9 +254,7 @@ public class ActionMessenger : DailyModuleBase
 
                 ImGui.SameLine();
                 if (ImGui.Button(GetStr("取消", "CancelRename"), new Vector2(80, 0)))
-                {
                     showRenameDialog = false;
-                }
 
                 ImGui.End();
             }
@@ -396,14 +396,50 @@ public class ActionMessenger : DailyModuleBase
     private static DateTime lastMessageTime = DateTime.MinValue;
     private const int CooldownMs = 2000;
 
-    private static void PostUseActionDelegate(
+    private static void PreCharacterCompleteCast(
+        ref bool isPrevented,
+        ref IBattleChara player,
+        ref ActionType type,
+        ref uint actionId,
+        ref uint spellId,
+        ref GameObjectId animationTargetId,
+        ref Vector3 location,
+        ref float rotation,
+        ref short lastUsedActionSequence,
+        ref int animationVariation,
+        ref int ballistaEntityId) => ProcessAction(true, type, actionId);
+
+    private static void PostCharacterCompleteCast(
+        nint result,
+        IBattleChara player,
+        ActionType type,
+        uint actionId,
+        uint spellId,
+        GameObjectId animationTargetId,
+        Vector3 location,
+        float rotation,
+        short lastUsedActionSequence,
+        int animationVariation,
+        int ballistaEntityId) => ProcessAction(true, type, actionId);
+
+    private static void PostUseAction(
         bool result,
         ActionType actionType,
         uint actionId,
         ulong targetId,
         uint extraParam,
         ActionManager.UseActionMode queueState,
-        uint comboRouteId)
+        uint comboRouteId) => ProcessAction(result, actionType, actionId);
+
+    private static void PostUseActionLocation(
+        bool result,
+        ActionType actionType,
+        uint actionId,
+        ulong targetId,
+        Vector3 location,
+        uint extraParam) => ProcessAction(result, actionType, actionId);
+
+    private static void ProcessAction(bool result, ActionType actionType, uint actionId)
     {
         if (actionType != ActionType.Action || !result || !ModuleConfig.IsEnabled)
             return;
@@ -442,37 +478,6 @@ public class ActionMessenger : DailyModuleBase
         lastMessageTime = now;
     }
 
-    private static void PostUseActionLocationDelegate(
-        bool result,
-        ActionType actionType,
-        uint actionID,
-        ulong targetID,
-        Vector3 location,
-        uint extraParam)
-    {
-        if (actionType != ActionType.Action)
-            return;
-
-        if (result == false)
-            return;
-
-        // 检查是否有配置的消息
-        // if (!ModuleConfig.SkillMessages.TryGetValue(actionID, out var messages))
-        //     return;
-        //
-        // if (messages.Count == 0)
-        //     return;
-        //
-        // // 随机选择一条消息
-        // var random = new Random();
-        // var selectedMessage = messages[random.Next(messages.Count)];
-
-        var selectedMessage = "hahahahahah";
-
-        SendChatMessage(
-            $"result: {result}, actionType: {actionType.ToString()}, actionID: {actionID}, targetID: {targetID}, location: {location.ToString()}, extraParam: {extraParam}, message: {selectedMessage}");
-    }
-
     #endregion
 
     #region Cache
@@ -484,15 +489,26 @@ public class ActionMessenger : DailyModuleBase
             var json = await HttpClientHelper.Get().GetStringAsync($"{Uri}/heal-action");
             var resp = JsonConvert.DeserializeObject<Dictionary<string, List<ActionInfo>>>(json);
             if (resp == null)
-                Error($"[MessageOnSkillUse] 技能文件解析失败: {json}");
+                Error($"[ActionMessenger] 技能文件解析失败: {json}");
             else
                 TargetActions = resp.SelectMany(kv => kv.Value).Where(p => p.On).ToDictionary(act => act.Id, act => act);
 
-            ActionSelect ??= new ActionSelectCombo("##ActionSelect", LuminaGetter.Get<LuminaAction>().Where(x => TargetActions.ContainsKey(x.RowId)));
+            // var actions = LuminaGetter.Get<LuminaAction>();
+            // var actions2 = actions.Where(p => !p.Name.IsEmpty && p.IsPlayerAction && p.IsPvP == false).ToList();
+            //
+            // json = JsonConvert.SerializeObject(actions2, new JsonSerializerSettings()
+            // {
+            //     MaxDepth = 1
+            // });
+
+            ActionSelect ??= new ActionSelectCombo("##ActionSelect", LuminaGetter.Get<LuminaAction>()
+                                                                                 .Where(p => !p.Name.IsEmpty
+                                                                                             && p.IsPlayerAction
+                                                                                             && p.IsPvP == false));
         }
         catch (Exception ex)
         {
-            Error($"[MessageOnSkillUse] 技能文件获取失败: {ex}");
+            Error($"[ActionMessenger] 技能文件获取失败: {ex}");
         }
     }
 
@@ -507,9 +523,9 @@ public class ActionMessenger : DailyModuleBase
     {
         return chatType switch
         {
-            ChatType.Say => GetStr("Say"),
-            ChatType.Party => GetStr("Party"),
-            ChatType.Echo => GetStr("Echo"),
+            ChatType.Say => GetStr("说话"),
+            ChatType.Party => GetStr("小队"),
+            ChatType.Echo => GetStr("默语"),
             _ => GetStr("Unknown")
         };
     }
@@ -546,9 +562,6 @@ public class ActionMessenger : DailyModuleBase
         /// 发送频道
         /// </summary>
         public string ChatTypeConfig { get; set; } = ChatType.Echo;
-
-        // 配置名称列表
-        public List<string> ConfigNames { get; set; } = [];
 
         // 配置名称 -> 配置数据的映射
         public Dictionary<string, ConfigData> Configurations { get; set; } = new();
