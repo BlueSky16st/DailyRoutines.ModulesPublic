@@ -2,15 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Threading.Tasks;
 using DailyRoutines.Abstracts;
-using DailyRoutines.Helpers;
 using DailyRoutines.Managers;
 using DailyRoutines.Widgets;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
-using Newtonsoft.Json;
-using LuminaAction = Lumina.Excel.Sheets.Action;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -23,10 +19,6 @@ public class ActionMessenger : DailyModuleBase
         Category = ModuleCategories.Action,
         Author = ["Hsin"]
     };
-
-    private const string Uri = "https://dr-cache.sumemo.dev";
-
-    private Dictionary<uint, ActionInfo> TargetActions = [];
 
     private static ModuleStorage ModuleConfig = null!;
 
@@ -41,9 +33,13 @@ public class ActionMessenger : DailyModuleBase
         // 初始化配置名称列表
         configNames = ModuleConfig.Configurations.Select(p => p.Key).ToList();
 
-        FetchActions().Wait();
+        ActionSelect ??= new ActionSelectCombo("##ActionSelect", LuminaGetter.Get<Lumina.Excel.Sheets.Action>()
+                                                                             .Where(p => !p.Name.IsEmpty
+                                                                                         && p.IsPlayerAction
+                                                                                         && p.IsPvP == false));
 
-        UseActionManager.RegPreCharacterCompleteCast(PreCharacterCompleteCast);
+        UseActionManager.RegCharacterStartCast(PostCharacterStartCast);
+        // UseActionManager.RegPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.RegCharacterCompleteCast(PostCharacterCompleteCast);
         // UseActionManager.RegUseAction(PostUseAction);
         // UseActionManager.RegUseActionLocation(PostUseActionLocation);
@@ -51,7 +47,8 @@ public class ActionMessenger : DailyModuleBase
 
     protected override void Uninit()
     {
-        UseActionManager.UnregPreCharacterCompleteCast(PreCharacterCompleteCast);
+        UseActionManager.UnregCharacterStartCast(PostCharacterStartCast);
+        // UseActionManager.UnregPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.UnregCharacterCompleteCast(PostCharacterCompleteCast);
         // UseActionManager.UnregUseAction(PostUseAction);
         // UseActionManager.UnregUseActionLocation(PostUseActionLocation);
@@ -396,6 +393,15 @@ public class ActionMessenger : DailyModuleBase
     private static DateTime lastMessageTime = DateTime.MinValue;
     private const int CooldownMs = 2000;
 
+    public void PostCharacterStartCast(
+        nint result,
+        IBattleChara player,
+        ActionType type,
+        uint actionId,
+        nint a4,
+        float rotation,
+        float a6) => ProcessAction(true, type, actionId);
+
     private static void PreCharacterCompleteCast(
         ref bool isPrevented,
         ref IBattleChara player,
@@ -480,40 +486,6 @@ public class ActionMessenger : DailyModuleBase
 
     #endregion
 
-    #region Cache
-
-    private async Task FetchActions()
-    {
-        try
-        {
-            var json = await HttpClientHelper.Get().GetStringAsync($"{Uri}/heal-action");
-            var resp = JsonConvert.DeserializeObject<Dictionary<string, List<ActionInfo>>>(json);
-            if (resp == null)
-                Error($"[ActionMessenger] 技能文件解析失败: {json}");
-            else
-                TargetActions = resp.SelectMany(kv => kv.Value).Where(p => p.On).ToDictionary(act => act.Id, act => act);
-
-            // var actions = LuminaGetter.Get<LuminaAction>();
-            // var actions2 = actions.Where(p => !p.Name.IsEmpty && p.IsPlayerAction && p.IsPvP == false).ToList();
-            //
-            // json = JsonConvert.SerializeObject(actions2, new JsonSerializerSettings()
-            // {
-            //     MaxDepth = 1
-            // });
-
-            ActionSelect ??= new ActionSelectCombo("##ActionSelect", LuminaGetter.Get<LuminaAction>()
-                                                                                 .Where(p => !p.Name.IsEmpty
-                                                                                             && p.IsPlayerAction
-                                                                                             && p.IsPvP == false));
-        }
-        catch (Exception ex)
-        {
-            Error($"[ActionMessenger] 技能文件获取失败: {ex}");
-        }
-    }
-
-    #endregion
-
     /// <summary>
     /// 获取聊天类型的预览文本
     /// </summary>
@@ -581,16 +553,4 @@ public class ActionMessenger : DailyModuleBase
     }
 
     #endregion
-}
-
-public class ActionInfo
-{
-    [JsonProperty("id")]
-    public uint Id { get; private set; }
-
-    [JsonProperty("name")]
-    public string Name { get; private set; }
-
-    [JsonProperty("on")]
-    public bool On { get; private set; } = true;
 }
