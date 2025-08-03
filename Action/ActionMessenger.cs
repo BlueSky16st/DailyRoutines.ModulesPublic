@@ -44,7 +44,7 @@ public class ActionMessenger : DailyModuleBase
         UseActionManager.RegCharacterStartCast(PostCharacterStartCast);
         // UseActionManager.RegPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.RegCharacterCompleteCast(PostCharacterCompleteCast);
-        // UseActionManager.RegUseAction(PostUseAction);
+        UseActionManager.RegUseAction(PostUseAction);
         // UseActionManager.RegUseActionLocation(PostUseActionLocation);
     }
 
@@ -53,8 +53,10 @@ public class ActionMessenger : DailyModuleBase
         UseActionManager.UnregCharacterStartCast(PostCharacterStartCast);
         // UseActionManager.UnregPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.UnregCharacterCompleteCast(PostCharacterCompleteCast);
-        // UseActionManager.UnregUseAction(PostUseAction);
+        UseActionManager.UnregUseAction(PostUseAction);
         // UseActionManager.UnregUseActionLocation(PostUseActionLocation);
+
+        base.Uninit();
     }
 
     #endregion
@@ -146,7 +148,7 @@ public class ActionMessenger : DailyModuleBase
         if (showAddDialog)
         {
             ImGui.SetNextWindowSize(new Vector2(320, 140));
-            if (ImGui.Begin(GetStr("新建配置", "AddConfigDialog"), ref showAddDialog, ImGuiWindowFlags.NoResize | ImGuiWindowFlags.AlwaysAutoResize))
+            if (ImGui.Begin(GetStr("新建配置", "AddConfigDialog"), ref showAddDialog))
             {
                 ImGui.Text(GetStr("配置名称") + ":");
                 ImGui.InputText("##NewConfigName", ref newConfigName, 256);
@@ -230,8 +232,7 @@ public class ActionMessenger : DailyModuleBase
         if (showRenameDialog)
         {
             ImGui.SetNextWindowSize(new Vector2(320, 140));
-            if (ImGui.Begin(GetStr("重命名配置", "RenameConfigDialog"), ref showRenameDialog,
-                            ImGuiWindowFlags.NoResize | ImGuiWindowFlags.AlwaysAutoResize))
+            if (ImGui.Begin(GetStr("重命名配置", "RenameConfigDialog"), ref showRenameDialog))
             {
                 var originalName = configNames[renameConfigIndex];
                 ImGui.Text(GetStr("新名称") + ":");
@@ -396,7 +397,7 @@ public class ActionMessenger : DailyModuleBase
     private static DateTime lastMessageTime = DateTime.MinValue;
     private const int CooldownMs = 2000;
 
-    public void PostCharacterStartCast(
+    public static void PostCharacterStartCast(
         nint result,
         IBattleChara player,
         ActionType type,
