@@ -31,7 +31,10 @@ public class ActionMessenger : DailyModuleBase
         ModuleConfig = LoadConfig<ModuleStorage>() ?? new ModuleStorage();
 
         // 初始化配置名称列表
+        ModuleConfig.Configurations = ModuleConfig.Configurations.Where(p => !string.IsNullOrWhiteSpace(p.Key))
+                                                  .ToDictionary(p => p.Key, p => p.Value);
         configNames = ModuleConfig.Configurations.Select(p => p.Key).ToList();
+        SaveConfig(ModuleConfig);
 
         ActionSelect ??= new ActionSelectCombo("##ActionSelect", LuminaGetter.Get<Lumina.Excel.Sheets.Action>()
                                                                              .Where(p => !p.Name.IsEmpty
