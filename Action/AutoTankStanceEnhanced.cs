@@ -37,12 +37,14 @@ public class AutoTankStanceEnhanced : DailyModuleBase
         TaskHelper ??= new TaskHelper { TimeLimitMS = 30_000 };
 
         DService.ClientState.ClassJobChanged += OnClassJobChanged;
+        DService.ClientState.LevelChanged += LevelChange;
         DService.DutyState.DutyRecommenced += OnDutyRecommenced;
     }
 
     protected override void Uninit()
     {
         DService.ClientState.ClassJobChanged -= OnClassJobChanged;
+        DService.ClientState.LevelChanged -= LevelChange;
         DService.DutyState.DutyRecommenced -= OnDutyRecommenced;
 
         base.Uninit();
@@ -55,6 +57,12 @@ public class AutoTankStanceEnhanced : DailyModuleBase
     }
 
     private void OnClassJobChanged(uint classJobId)
+    {
+        TaskHelper.DelayNext(1000);
+        TaskHelper.Enqueue(CheckCurrentJob);
+    }
+
+    private void LevelChange(uint classJobId, uint level)
     {
         TaskHelper.DelayNext(1000);
         TaskHelper.Enqueue(CheckCurrentJob);
