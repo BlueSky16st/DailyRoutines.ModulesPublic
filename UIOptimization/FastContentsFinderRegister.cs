@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Threading;
 using DailyRoutines.Abstracts;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
@@ -15,11 +14,16 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("FastContentsFinderRegisterTitle"),
-        Description = GetLoc("FastContentsFinderRegisterDescription"),
-        Category    = ModuleCategories.UIOptimization,
+        Title               = GetLoc("FastContentsFinderRegisterTitle"),
+        Description         = GetLoc("FastContentsFinderRegisterDescription"),
+        Category            = ModuleCategories.UIOptimization,
         ModulesPrerequisite = ["ContentFinderCommand"]
     };
+
+    private const ImGuiWindowFlags WindowFlags = ImGuiWindowFlags.NoDecoration    | ImGuiWindowFlags.AlwaysAutoResize   |
+                                                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoMove             |
+                                                 ImGuiWindowFlags.NoDocking       | ImGuiWindowFlags.NoFocusOnAppearing |
+                                                 ImGuiWindowFlags.NoNav           | ImGuiWindowFlags.NoBackground;
 
     protected override void Init()
     {
@@ -51,23 +55,19 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
         var cachedData = ContentFinderDataManager.GetCachedData();
         if (cachedData == null || cachedData.Items.Count == 0) return;
 
-        var lineHeight = ImGui.GetTextLineHeight() - ImGui.GetStyle().FramePadding.Y;
+        var lineHeight = ImGui.GetTextLineHeight() - (2 * ImGui.GetStyle().FramePadding.Y);
 
         HideLevelNodes();
         foreach (var item in cachedData.Items)
         {
             ImGui.SetNextWindowPos(item.Position);
-            if (ImGui.Begin($"FastContentsFinderRouletteOverlay-{item.NodeId}",
-                            ImGuiWindowFlags.NoDecoration    | ImGuiWindowFlags.AlwaysAutoResize   |
-                            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoMove             |
-                            ImGuiWindowFlags.NoDocking       | ImGuiWindowFlags.NoFocusOnAppearing |
-                            ImGuiWindowFlags.NoNav           | ImGuiWindowFlags.NoBackground))
+            if (ImGui.Begin($"FastContentsFinderRouletteOverlay-{item.NodeID}", WindowFlags))
             {
                 if (cachedData.InDutyQueue)
                 {
                     if (DService.Texture.TryGetFromGameIcon(new(61502), out var explorerTexture))
                     {
-                        if (ImGui.ImageButton(explorerTexture.GetWrapOrEmpty().ImGuiHandle, new(lineHeight)))
+                        if (ImGui.ImageButton(explorerTexture.GetWrapOrEmpty().Handle, new(lineHeight)))
                             CancelDutyApply();
                         ImGuiOm.TooltipHover($"{GetLoc("Cancel")}");
                     }
@@ -82,7 +82,7 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
                         {
                             if (DService.Texture.TryGetFromGameIcon(new(60081), out var joinTexture))
                             {
-                                if (ImGui.ImageButton(joinTexture.GetWrapOrEmpty().ImGuiHandle, new(lineHeight)))
+                                if (ImGui.ImageButton(joinTexture.GetWrapOrEmpty().Handle, new(lineHeight)))
                                 {
                                     ChatHelper.SendMessage($"/pdrduty {(cachedData.CurrentTab == 0 ? "r" : "n")} {item.CleanName}");
                                     ChatHelper.SendMessage($"/pdrduty {(cachedData.CurrentTab != 0 ? "r" : "n")} {item.CleanName}");
@@ -97,7 +97,7 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
                                     if (DService.Texture.TryGetFromGameIcon(new(60648), out var explorerTexture))
                                     {
                                         ImGui.SameLine();
-                                        if (ImGui.ImageButton(explorerTexture.GetWrapOrEmpty().ImGuiHandle, new(lineHeight)))
+                                        if (ImGui.ImageButton(explorerTexture.GetWrapOrEmpty().Handle, new(lineHeight)))
                                             ChatHelper.SendMessage($"/pdrduty n {item.CleanName} explorer");
                                         ImGuiOm.TooltipHover($"{sharedPrefix} ({LuminaGetter.GetRow<Addon>(13038)!.Value.Text.ExtractText()})");
                                     }
@@ -107,7 +107,7 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
                                     if (DService.Texture.TryGetFromGameIcon(new(60641), out var unrestTexture))
                                     {
                                         ImGui.SameLine();
-                                        if (ImGui.ImageButton(unrestTexture.GetWrapOrEmpty().ImGuiHandle, new(lineHeight)))
+                                        if (ImGui.ImageButton(unrestTexture.GetWrapOrEmpty().Handle, new(lineHeight)))
                                             ChatHelper.SendMessage($"/pdrduty n {item.CleanName} unrest");
                                         ImGuiOm.TooltipHover($"{sharedPrefix} ({LuminaGetter.GetRow<Addon>(10008)!.Value.Text.ExtractText()})\n" +
                                                              $"[{GetLoc("FastContentsFinderRegister-HoldConflictKeyToToggle")}]");
@@ -161,10 +161,7 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
     protected override void Uninit()
     {
         DService.AddonLifecycle.UnregisterListener(OnAddon);
-        
         ContentFinderDataManager.ClearCache();
-        
-        base.Uninit();
     }
 
     private void OnAddon(AddonEvent type, AddonArgs? args)
@@ -190,13 +187,13 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
     // 数据结构定义
     public class ContentFinderItemData
     {
-        public uint    NodeId    { get; set; }
-        public string  Name      { get; set; } = string.Empty;
-        public string  Level     { get; set; } = string.Empty;
-        public Vector2 Position  { get; set; }
-        public bool    IsLocked  { get; set; }
+        public uint    NodeID    { get; init; }
+        public string  Name      { get; init; } = string.Empty;
+        public string  Level     { get; init; } = string.Empty;
+        public Vector2 Position  { get; init; }
+        public bool    IsLocked  { get; init; }
         public bool    IsVisible { get; set; }
-        public string  CleanName { get; set; } = string.Empty;
+        public string  CleanName { get; init; } = string.Empty;
     }
 
     public class ContentFinderCacheData
@@ -211,17 +208,13 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
     private static class ContentFinderDataManager
     {
         private static          ContentFinderCacheData? cachedData;
-        private static readonly Lock                    lockObject = new();
 
         public static ContentFinderCacheData? GetCachedData()
         {
-            lock (lockObject)
-            {
-                if (cachedData != null && DateTime.Now - cachedData.LastUpdateTime > TimeSpan.FromSeconds(5))
-                    cachedData = null;
+            if (cachedData != null && DateTime.Now - cachedData.LastUpdateTime > TimeSpan.FromSeconds(5))
+                cachedData = null;
                 
-                return cachedData;
-            }
+            return cachedData;
         }
 
         public static void UpdateCacheData()
@@ -285,10 +278,10 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
 
                     var itemData = new ContentFinderItemData
                     {
-                        NodeId    = listItemComponent->NodeId,
+                        NodeID    = listItemComponent->NodeId,
                         Name      = name,
                         Level     = level,
-                        Position  = new Vector2(levelNode->ScreenX + (newData.CurrentTab == 0 ? 24f : 0f), levelNode->ScreenY - 8f),
+                        Position  = new(levelNode->ScreenX + (newData.CurrentTab == 0 ? 8f : -7f), levelNode->ScreenY - 8f),
                         IsLocked  = lockNode->IsVisible(),
                         IsVisible = levelNode->IsVisible(),
                         CleanName = name.Replace(" ", string.Empty)
@@ -299,8 +292,7 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
 
                 newData.Items = items;
 
-                lock (lockObject)
-                    cachedData = newData;
+                cachedData = newData;
             }
             catch
             {
@@ -308,10 +300,7 @@ public unsafe class FastContentsFinderRegister : DailyModuleBase
             }
         }
 
-        public static void ClearCache()
-        {
-            lock (lockObject)
-                cachedData = null;
-        }
+        public static void ClearCache() => 
+            cachedData = null;
     }
 }

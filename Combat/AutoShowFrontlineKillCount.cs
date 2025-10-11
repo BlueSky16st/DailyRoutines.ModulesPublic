@@ -12,7 +12,7 @@ public unsafe class AutoShowFrontlineKillCount : DailyModuleBase
     {
         Title       = GetLoc("AutoShowFrontlineKillCountTitle"),
         Description = GetLoc("AutoShowFrontlineKillCountDescription"),
-        Category    = ModuleCategories.UIOptimization
+        Category    = ModuleCategories.Combat
     };
     
     private static uint LastKillCount;
@@ -23,6 +23,7 @@ public unsafe class AutoShowFrontlineKillCount : DailyModuleBase
     {
         DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw, "PvPFrontlineGauge", OnAddon);
         DService.ClientState.TerritoryChanged += OnZoneChanged;
+        
         if (IsAddonAndNodesReady(PvPFrontlineGauge))
         {
             try
@@ -38,7 +39,7 @@ public unsafe class AutoShowFrontlineKillCount : DailyModuleBase
 
     protected override void ConfigUI()
     {
-        ImGui.TextColored(LightSkyBlue, GetLoc("Preview"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("Preview"));
 
         using (ImRaii.PushIndent())
         {
@@ -47,7 +48,7 @@ public unsafe class AutoShowFrontlineKillCount : DailyModuleBase
             
             ImGui.SameLine();
             ImGui.SetNextItemWidth(100f * GlobalFontScale);
-            if (ImGuiOm.InputUInt("###PreviewInput", ref Preview, 1, 1))
+            if (ImGui.InputUInt("###PreviewInput", ref Preview, 1, 1))
                 Preview = Math.Clamp(Preview, 1, 99);
         }
     }

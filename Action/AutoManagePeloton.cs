@@ -18,9 +18,16 @@ public class AutoManagePeloton : DailyModuleBase
         UseActionManager.RegPreUseAction(OnPreUseAction);
 
     protected override void Uninit() => 
-        UseActionManager.UnregPreUseAction(OnPreUseAction);
+        UseActionManager.Unreg(OnPreUseAction);
 
-    private static void OnPreUseAction(ref bool isPrevented, ref ActionType actionType, ref uint actionID, ref ulong targetID, ref uint extraParam, ref ActionManager.UseActionMode queueState, ref uint comboRouteID)
+    private static void OnPreUseAction(
+        ref bool                        isPrevented,
+        ref ActionType                  actionType,
+        ref uint                        actionID,
+        ref ulong                       targetID,
+        ref uint                        extraParam,
+        ref ActionManager.UseActionMode queueState,
+        ref uint                        comboRouteID)
     {
         if (actionType != ActionType.Action || actionID != 7557) return;
         isPrevented = DService.Condition[ConditionFlag.InCombat];

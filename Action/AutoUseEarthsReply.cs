@@ -3,9 +3,9 @@ using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
-namespace DailyRoutines.Modules;
+namespace DailyRoutines.ModulesPublic;
 
-public unsafe class AutoUseEarthsReply : DailyModuleBase
+public class AutoUseEarthsReply : DailyModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
@@ -24,30 +24,12 @@ public unsafe class AutoUseEarthsReply : DailyModuleBase
 
     protected override void Init()
     {
-        ModuleConfig ??= new Config();
-        TaskHelper   ??= new TaskHelper { TimeLimitMS = 8_000 };
+        ModuleConfig =   LoadConfig<Config>() ?? new();
+        TaskHelper   ??= new() { TimeLimitMS = 8_000 };
         
         UseActionManager.RegUseActionLocation(OnUseAction);
     }
-
-    private void OnUseAction(bool result, ActionType actionType, uint actionID, ulong targetID, Vector3 location, uint extraParam)
-    {
-        if (actionType != ActionType.Action || actionID != RiddleOfEarthAction || !result) return;
-
-        TaskHelper.Abort();
-        TaskHelper.DelayNext(8_000, $"Delay_UseAction{EarthsReplyAction}", false, 1);
-        TaskHelper.Enqueue(() =>
-                           {
-                               if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return;
-                               
-                               var statusManager = localPlayer.ToStruct()->StatusManager;
-                               if (!ModuleConfig.UseWhenSprint && statusManager.HasStatus(SprintStatus)) return;
-                               if (!ModuleConfig.UseWhenGuard  && statusManager.HasStatus(GuardStatus)) return;
-                               
-                               UseActionManager.UseAction(ActionType.Action, EarthsReplyAction);
-                           }, $"UseAction_{EarthsReplyAction}", 500, true, 1);
-    }
-
+    
     protected override void ConfigUI()
     {
         if (ImGui.Checkbox(GetLoc("AutoUseEarthsReply-UseWhenGuard"), ref ModuleConfig.UseWhenSprint))
@@ -57,12 +39,25 @@ public unsafe class AutoUseEarthsReply : DailyModuleBase
             SaveConfig(ModuleConfig);
     }
 
-    protected override void Uninit()
+    private void OnUseAction(bool result, ActionType actionType, uint actionID, ulong targetID, Vector3 location, uint extraParam, byte a7)
     {
-        base.Uninit();
-        
-        UseActionManager.UnregUseActionLocation(OnUseAction);
+        if (actionType != ActionType.Action || actionID != RiddleOfEarthAction || !result) return;
+
+        TaskHelper.Abort();
+        TaskHelper.DelayNext(8_000, $"Delay_UseAction{EarthsReplyAction}", false, 1);
+        TaskHelper.Enqueue(() =>
+                           {
+                               if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return;
+
+                               if (!ModuleConfig.UseWhenSprint && localPlayer.StatusList.HasStatus(SprintStatus)) return;
+                               if (!ModuleConfig.UseWhenGuard  && localPlayer.StatusList.HasStatus(GuardStatus)) return;
+
+                               UseActionManager.UseActionLocation(ActionType.Action, EarthsReplyAction);
+                           }, $"UseAction_{EarthsReplyAction}", 500, true, 1);
     }
+
+    protected override void Uninit() => 
+        UseActionManager.Unreg(OnUseAction);
 
     public class Config : ModuleConfiguration
     {

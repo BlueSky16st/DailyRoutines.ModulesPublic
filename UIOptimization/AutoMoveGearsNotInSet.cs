@@ -3,6 +3,7 @@ using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using Dalamud.Game.Text.SeStringHandling;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using KamiToolKit.Nodes;
@@ -15,7 +16,7 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
     {
         Title       = GetLoc("AutoMoveGearsNotInSetTitle"),
         Description = GetLoc("AutoMoveGearsNotInSetDescription"),
-        Category    = ModuleCategories.Combat
+        Category    = ModuleCategories.UIOptimization
     };
 
     private const string Command = "retrievegears";
@@ -40,16 +41,14 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
     protected override void Uninit()
     {
         DService.AddonLifecycle.UnregisterListener(OnAddon);
-        
-        Service.AddonController.DetachNode(Button);
-        Button = null;
+        OnAddon(AddonEvent.PreFinalize, null);
         
         CommandManager.RemoveSubCommand(Command);
     }
 
     protected override void ConfigUI()
     {
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("Command")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Command")}:");
         
         ImGui.SameLine();
         ImGui.Text($"/pdr {Command} → {GetLoc("AutoMoveGearsNotInSet-CommandHelp")}");
@@ -57,7 +56,7 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
         ImGui.Spacing();
         
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("AutoMoveGearsNotInSet-MannualRetrieve")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoMoveGearsNotInSet-MannualRetrieve")}:");
         
         ImGui.SameLine();
         if (ImGui.Button(GetLoc("Confirm")))
@@ -75,13 +74,22 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
                 {
                     Button = new TextButtonNode
                     {
-                        Size      = new(240, 28f),
-                        Position  = new(72, 20),
+                        Size      = new(48),
+                        Position  = new(12, 500),
                         IsVisible = true,
-                        Label     = GetLoc("AutoMoveGearsNotInSet-Button"),
+                        SeString  = new SeStringBuilder().AddIcon(BitmapFontIcon.SwordSheathed).Build(),
+                        Tooltip   = GetLoc("AutoMoveGearsNotInSet-Button"),
                         OnClick   = () => ChatHelper.SendMessage($"/pdr {Command}"),
                         IsEnabled = true,
                     };
+
+                    var backgroundNode = (SimpleNineGridNode)Button.BackgroundNode;
+
+                    backgroundNode.TexturePath        = "ui/uld/partyfinder_hr1.tex";
+                    backgroundNode.TextureCoordinates = new(38);
+                    backgroundNode.TextureSize        = new(32, 34);
+                    backgroundNode.LeftOffset         = 0;
+                    backgroundNode.RightOffset        = 0f;
                     
                     Service.AddonController.AttachNode(Button, ArmouryBoard->RootNode);
                 }
@@ -127,7 +135,7 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
                 
                 if (!TryGetFirstInventoryItem(PlayerInventories, x => x.ItemId == 0, out var emptySlot)) goto Out;
                 
-                manager->MoveItemSlot(type, (ushort)i, emptySlot->Container, (ushort)emptySlot->Slot, 1);
+                manager->MoveItemSlot(type, (ushort)i, emptySlot->Container, (ushort)emptySlot->Slot, true);
                 counter++;
             }
         }

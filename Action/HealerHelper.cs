@@ -3,22 +3,21 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
-using System.Web;
 using DailyRoutines.Abstracts;
 using DailyRoutines.Helpers;
 using DailyRoutines.Managers;
 using DailyRoutines.Widgets;
 using Dalamud.Game.ClientState.Conditions;
-using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Party;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.Object;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
 using Lumina.Text.ReadOnly;
 using Newtonsoft.Json;
 using LuminaAction = Lumina.Excel.Sheets.Action;
-
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -36,11 +35,12 @@ public class HealerHelper : DailyModuleBase
     };
 
     // const
-    private const uint UnspecificTargetId = 0xE000_0000;
+    private const uint UnspecificTargetID = 0xE000_0000;
 
     // cache
     private static readonly Dictionary<ReadOnlySeString, ReadOnlySeString> JobNameMap =
         LuminaGetter.Get<ClassJob>()
+                    .DistinctBy(x => x.NameEnglish)
                     .ToDictionary(s => s.NameEnglish, s => s.Name);
 
     // storage
@@ -69,16 +69,16 @@ public class HealerHelper : DailyModuleBase
         DService.DutyState.DutyRecommenced    += OnDutyRecommenced;
         DService.ClientState.TerritoryChanged += OnZoneChanged;
         DService.Condition.ConditionChange    += OnConditionChanged;
-        FrameworkManager.Register(OnUpdate, throttleMS: 5_000);
+        FrameworkManager.Reg(OnUpdate, throttleMS: 5_000);
     }
 
     protected override void Uninit()
     {
-        UseActionManager.UnregPreUseActionLocation(OnPreUseAction);
+        UseActionManager.Unreg(OnPreUseAction);
         DService.DutyState.DutyRecommenced    -= OnDutyRecommenced;
         DService.ClientState.TerritoryChanged -= OnZoneChanged;
         DService.Condition.ConditionChange    -= OnConditionChanged;
-        FrameworkManager.Unregister(OnUpdate);
+        FrameworkManager.Unreg(OnUpdate);
 
         base.Uninit();
     }
@@ -112,7 +112,7 @@ public class HealerHelper : DailyModuleBase
         ImGui.NewLine();
 
         // notifications
-        ImGui.TextColored(LightSkyBlue, GetLoc("Notification"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("Notification"));
         ImGui.Spacing();
         using (ImRaii.PushIndent())
         {
@@ -128,7 +128,7 @@ public class HealerHelper : DailyModuleBase
     {
         var cardConfig = ModuleConfig.AutoPlayCardStorage;
 
-        ImGui.TextColored(LightSkyBlue, GetLoc("HealerHelper-AutoPlayCardTitle"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("HealerHelper-AutoPlayCardTitle"));
         ImGuiOm.HelpMarker(GetLoc("HealerHelper-EasyRedirectDescription", LuminaWrapper.GetActionName(17055)));
 
         ImGui.Spacing();
@@ -170,7 +170,7 @@ public class HealerHelper : DailyModuleBase
 
         // melee opener
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightYellow, $"{GetLoc("HealerHelper-AutoPlayCard-MeleeOpener")}");
+        ImGui.TextColored(KnownColor.LightYellow.ToVector4(), $"{GetLoc("HealerHelper-AutoPlayCard-MeleeOpener")}");
 
         if (CustomCardOrderUI(config.CustomCardOrder.Melee["opener"]))
         {
@@ -191,7 +191,7 @@ public class HealerHelper : DailyModuleBase
 
         // melee 2m+
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightYellow, $"{GetLoc("HealerHelper-AutoPlayCard-Melee2Min")}");
+        ImGui.TextColored(KnownColor.LightYellow.ToVector4(), $"{GetLoc("HealerHelper-AutoPlayCard-Melee2Min")}");
 
         if (CustomCardOrderUI(config.CustomCardOrder.Melee["2m+"]))
         {
@@ -212,7 +212,7 @@ public class HealerHelper : DailyModuleBase
 
         // range opener
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightYellow, $"{GetLoc("HealerHelper-AutoPlayCard-RangeOpener")}");
+        ImGui.TextColored(KnownColor.LightYellow.ToVector4(), $"{GetLoc("HealerHelper-AutoPlayCard-RangeOpener")}");
 
         if (CustomCardOrderUI(config.CustomCardOrder.Range["opener"]))
         {
@@ -233,7 +233,7 @@ public class HealerHelper : DailyModuleBase
 
         // range opener
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightYellow, $"{GetLoc("HealerHelper-AutoPlayCard-Range2Min")}");
+        ImGui.TextColored(KnownColor.LightYellow.ToVector4(), $"{GetLoc("HealerHelper-AutoPlayCard-Range2Min")}");
 
         if (CustomCardOrderUI(config.CustomCardOrder.Range["2m+"]))
         {
@@ -271,7 +271,7 @@ public class HealerHelper : DailyModuleBase
             if (ImGui.BeginDragDropSource())
             {
                 customCardOrderDragIndex = index;
-                ImGui.SetDragDropPayload("##CustomCardOrder", nint.Zero, 0);
+                ImGui.SetDragDropPayload("##CustomCardOrder", []);
                 ImGui.EndDragDropSource();
             }
 
@@ -296,7 +296,7 @@ public class HealerHelper : DailyModuleBase
     {
         var config = ModuleConfig.EasyHealStorage;
 
-        ImGui.TextColored(LightSkyBlue, GetLoc("HealerHelper-EasyHealTitle"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("HealerHelper-EasyHealTitle"));
         ImGuiOm.HelpMarker(GetLoc("HealerHelper-EasyRedirectDescription", GetLoc("HealerHelper-SingleTargetHeal")));
 
         ImGui.Spacing();
@@ -326,7 +326,7 @@ public class HealerHelper : DailyModuleBase
 
                 ImGui.Spacing();
 
-                ImGui.TextColored(LightGreen, GetLoc("HealerHelper-EasyHeal-HealThreshold"));
+                ImGui.TextColored(KnownColor.LightGreen.ToVector4(), GetLoc("HealerHelper-EasyHeal-HealThreshold"));
                 ImGuiOm.HelpMarker(GetLoc("HealerHelper-EasyHeal-HealThresholdHelp"));
 
                 ImGui.Spacing();
@@ -338,13 +338,13 @@ public class HealerHelper : DailyModuleBase
                 if (config.NeedHealThreshold > 0.92f)
                 {
                     ImGui.Spacing();
-                    ImGui.TextColored(Orange, GetLoc("HealerHelper-EasyHeal-OverhealWarning"));
+                    ImGui.TextColored(KnownColor.Orange.ToVector4(), GetLoc("HealerHelper-EasyHeal-OverhealWarning"));
                 }
 
                 ImGui.Spacing();
 
                 // target when overheal
-                ImGui.TextColored(LightPink, GetLoc("HealerHelper-EasyHeal-OverhealTargetDescription"));
+                ImGui.TextColored(KnownColor.LightYellow.ToVector4(), GetLoc("HealerHelper-EasyHeal-OverhealTargetDescription"));
 
                 ImGui.Spacing();
 
@@ -380,7 +380,7 @@ public class HealerHelper : DailyModuleBase
 
     private void ActiveHealActionsSelect()
     {
-        ImGui.TextColored(YellowGreen, $"{GetLoc("HealerHelper-EasyHeal-ActiveHealAction")}");
+        ImGui.TextColored(KnownColor.YellowGreen.ToVector4(), $"{GetLoc("HealerHelper-EasyHeal-ActiveHealAction")}");
         ImGui.Spacing();
 
         if (ActionSelect.DrawCheckbox())
@@ -403,7 +403,7 @@ public class HealerHelper : DailyModuleBase
     {
         var config = ModuleConfig.EasyHealStorage;
 
-        ImGui.TextColored(LightSkyBlue, GetLoc("HealerHelper-EasyDispelTitle"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("HealerHelper-EasyDispelTitle"));
         ImGuiOm.HelpMarker(GetLoc("HealerHelper-EasyRedirectDescription", LuminaWrapper.GetActionName(7568)));
 
         ImGui.Spacing();
@@ -444,7 +444,7 @@ public class HealerHelper : DailyModuleBase
     {
         var config = ModuleConfig.EasyHealStorage;
 
-        ImGui.TextColored(LightSkyBlue, GetLoc("HealerHelper-EasyRaiseTitle"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("HealerHelper-EasyRaiseTitle"));
 
         ImGui.Spacing();
 
@@ -486,8 +486,13 @@ public class HealerHelper : DailyModuleBase
 
     // hook before play card and target heal
     private static void OnPreUseAction(
-        ref bool  isPrevented, ref ActionType type,     ref uint actionId,
-        ref ulong targetId,    ref Vector3    location, ref uint extraParam
+        ref bool       isPrevented,
+        ref ActionType type,
+        ref uint       actionID,
+        ref ulong      targetID,
+        ref Vector3    location,
+        ref uint       extraParam,
+        ref byte       a7
     )
     {
         if (type != ActionType.Action || GameState.IsInPVPArea || DService.PartyList.Length < 2)
@@ -503,17 +508,17 @@ public class HealerHelper : DailyModuleBase
 
             // auto play card
             var cardConfig = ModuleConfig.AutoPlayCardStorage;
-            if (isAST && AutoPlayCardManager.PlayCardActions.Contains(actionId) && cardConfig.AutoPlayCard != AutoPlayCardManager.AutoPlayCardStatus.Disable)
-                AutoPlayCardService.OnPrePlayCard(ref targetId, ref actionId);
+            if (isAST && AutoPlayCardManager.PlayCardActions.Contains(actionID) && cardConfig.AutoPlayCard != AutoPlayCardManager.AutoPlayCardStatus.Disable)
+                AutoPlayCardService.OnPrePlayCard(ref targetID, ref actionID);
 
             // easy heal
             var healConfig = ModuleConfig.EasyHealStorage;
-            if (healConfig.EasyHeal == EasyHealManager.EasyHealStatus.Enable && healConfig.ActiveHealActions.Contains(actionId))
-                EasyHealService.OnPreHeal(ref targetId, ref actionId, ref isPrevented);
+            if (healConfig.EasyHeal == EasyHealManager.EasyHealStatus.Enable && healConfig.ActiveHealActions.Contains(actionID))
+                EasyHealService.OnPreHeal(ref targetID, ref actionID, ref isPrevented);
 
             // easy dispel
-            if (healConfig.EasyDispel == EasyHealManager.EasyDispelStatus.Enable && actionId is 7568)
-                EasyHealService.OnPreDispel(ref targetId, ref isPrevented);
+            if (healConfig.EasyDispel == EasyHealManager.EasyDispelStatus.Enable && actionID is 7568)
+                EasyHealService.OnPreDispel(ref targetID, ref isPrevented);
         }
 
         // can raise
@@ -522,8 +527,8 @@ public class HealerHelper : DailyModuleBase
         {
             // easy raise
             var healConfig = ModuleConfig.EasyHealStorage;
-            if (healConfig.EasyRaise == EasyHealManager.EasyRaiseStatus.Enable && EasyHealManager.RaiseActions.Contains(actionId))
-                EasyHealService.OnPreRaise(ref targetId, ref actionId, ref isPrevented);
+            if (healConfig.EasyRaise == EasyHealManager.EasyRaiseStatus.Enable && EasyHealManager.RaiseActions.Contains(actionID))
+                EasyHealService.OnPreRaise(ref targetID, ref actionID, ref isPrevented);
         }
     }
 
@@ -567,7 +572,7 @@ public class HealerHelper : DailyModuleBase
                 AutoPlayCardService.NeedReorder         = false;
             }
         }
-        catch (Exception)
+        catch
         {
             // ignored
         }
@@ -604,19 +609,19 @@ public class HealerHelper : DailyModuleBase
 
             try
             {
-                var json = await HttpClientHelper.Get().GetStringAsync($"{Uri}/card-order");
+                var json = await HttpClientHelper.Get().GetStringAsync($"{Uri}/card-order.json");
                 var resp = JsonConvert.DeserializeObject<AutoPlayCardManager.PlayCardOrder>(json);
-                if (resp is null)
-                    Error($"[HealerHelper] 远程发卡顺序文件解析失败: {json}");
-                else
-                {
-                    AutoPlayCardService.InitDefaultCardOrder(resp);
-                    // init custom if empty
-                    if (!AutoPlayCardService.CustomCardOrderLoaded)
-                        AutoPlayCardService.InitCustomCardOrder();
-                }
+                if (resp is null) return;
+
+                AutoPlayCardService.InitDefaultCardOrder(resp);
+                // init custom if empty
+                if (!AutoPlayCardService.CustomCardOrderLoaded)
+                    AutoPlayCardService.InitCustomCardOrder();
             }
-            catch (Exception ex) { Error($"[HealerHelper] 远程发卡顺序文件获取失败: {ex}"); }
+            catch
+            {
+                // ignored
+            }
         }
 
         public static async Task FetchHealActions()
@@ -626,20 +631,20 @@ public class HealerHelper : DailyModuleBase
 
             try
             {
-                var json = await HttpClientHelper.Get().GetStringAsync($"{Uri}/heal-action");
+                var json = await HttpClientHelper.Get().GetStringAsync($"{Uri}/heal-action.json");
                 var resp = JsonConvert.DeserializeObject<Dictionary<string, List<EasyHealManager.HealAction>>>(json);
-                if (resp is null)
-                    Error($"[HealerHelper] 远程治疗技能文件解析失败: {json}");
-                else
-                {
-                    EasyHealService.InitTargetHealActions(resp.SelectMany(kv => kv.Value).ToDictionary(act => act.Id, act => act));
+                if (resp is null) return;
+                
+                EasyHealService.InitTargetHealActions(resp.SelectMany(kv => kv.Value).ToDictionary(act => act.ID, act => act));
 
-                    // when active is empty, set with default on heal actions
-                    if (!EasyHealService.ActiveHealActionsLoaded)
-                        EasyHealService.InitActiveHealActions();
-                }
+                // when active is empty, set with default on heal actions
+                if (!EasyHealService.ActiveHealActionsLoaded)
+                    EasyHealService.InitActiveHealActions();
             }
-            catch (Exception ex) { Error($"[HealerHelper] 远程治疗技能文件获取失败: {ex}"); }
+            catch 
+            {
+                // ignored
+            }
         }
 
         public static async Task FetchAll()
@@ -649,7 +654,11 @@ public class HealerHelper : DailyModuleBase
                 var tasks = new[] { FetchPlayCardOrder(), FetchHealActions() };
                 await Task.WhenAll(tasks);
             }
-            catch (Exception ex) { Error($"[HealerHelper] 远程资源获取失败: {ex}"); } finally
+            catch
+            {
+                // ignored
+            } 
+            finally
             {
                 // action select combo
                 ActionSelect ??= new("##ActionSelect", LuminaGetter.Get<LuminaAction>().Where(x => EasyHealService.TargetHealActions.ContainsKey(x.RowId)));
@@ -812,13 +821,16 @@ public class HealerHelper : DailyModuleBase
             rangeCandidateOrder.Sort((a, b) => b.priority.CompareTo(a.priority));
         }
 
-        private uint FetchCandidateId(string role)
+        private uint FetchCandidateID(string role)
         {
             var candidates = role switch
             {
                 "Melee" => meleeCandidateOrder,
                 "Range" => rangeCandidateOrder
             };
+
+            var fallbackID       = LocalPlayerState.EntityID;
+            var fallbackPriority = 0.0;
 
             foreach (var member in candidates)
             {
@@ -829,36 +841,45 @@ public class HealerHelper : DailyModuleBase
                 // member skip conditions: out of range, dead, or weakened
                 var maxDistance    = ActionManager.GetActionRange(37023);
                 var memberDead     = candidate.GameObject.IsDead || candidate.CurrentHP <= 0;
-                var memberWeakness = candidate.Statuses.Any(x => x.StatusId is 43 or 44);
                 var memberDistance = Vector3.DistanceSquared(candidate.Position, DService.ObjectTable.LocalPlayer.Position);
-                if (memberDead || memberWeakness || memberDistance > maxDistance * maxDistance)
+                if (memberDead || memberDistance > maxDistance * maxDistance)
                     continue;
 
-                return member.id;
+                // weakness: use as fallback
+                if (candidate.Statuses.Any(x => x.StatusId is 43 or 44))
+                {
+                    fallbackID       = member.id;
+                    fallbackPriority = member.priority;
+                    continue;
+                }
+
+                // candidate vs fallback
+                if (member.priority >= fallbackPriority - 2)
+                    return member.id;
             }
 
-            return LocalPlayerState.EntityID;
+            return fallbackID;
         }
 
-        public void OnPrePlayCard(ref ulong targetId, ref uint actionId)
+        public void OnPrePlayCard(ref ulong targetID, ref uint actionID)
         {
             var partyMemberIds = DService.PartyList.Select(m => m.ObjectId).ToHashSet();
-            if (!partyMemberIds.Contains((uint)targetId))
+            if (!partyMemberIds.Contains((uint)targetID))
             {
-                targetId = actionId switch
+                targetID = actionID switch
                 {
-                    37023 => FetchCandidateId("Melee"),
-                    37026 => FetchCandidateId("Range")
+                    37023 => FetchCandidateID("Melee"),
+                    37026 => FetchCandidateID("Range")
                 };
 
-                var member = FetchMember((uint)targetId);
+                var member = FetchMember((uint)targetID);
                 if (member is not null)
                 {
                     var name         = member.Name.ExtractText();
                     var classJobIcon = member.ClassJob.ValueNullable.ToBitmapFontIcon();
                     var classJobName = member.ClassJob.Value.Name.ExtractText();
 
-                    var locKey = actionId switch
+                    var locKey = actionID switch
                     {
                         37023 => "Melee",
                         37026 => "Range"
@@ -882,7 +903,7 @@ public class HealerHelper : DailyModuleBase
     private class EasyHealManager(EasyHealManager.Storage config)
     {
         // const
-        public static readonly HashSet<uint> RaiseActions = [125, 173, 3603, 24287, 7670, 7523];
+        public static readonly HashSet<uint> RaiseActions = [125, 173, 3603, 24287, 7670, 7523, 64556];
 
         // heal action status
         public bool TargetHealActionsLoaded => config.TargetHealActions.Count > 0;
@@ -923,7 +944,7 @@ public class HealerHelper : DailyModuleBase
         public class HealAction
         {
             [JsonProperty("id")]
-            public uint Id { get; private set; }
+            public uint ID { get; private set; }
 
             [JsonProperty("name")]
             public string Name { get; private set; }
@@ -974,32 +995,32 @@ public class HealerHelper : DailyModuleBase
         public void InitActiveHealActions()
             => config.ActiveHealActions = config.TargetHealActions.Where(act => act.Value.On).Select(act => act.Key).ToHashSet();
 
-        private uint TargetNeedHeal(uint actionId)
+        private uint TargetNeedHeal(uint actionID)
         {
             var partyList  = DService.PartyList;
             var lowRatio   = 2f;
-            var needHealId = UnspecificTargetId;
+            var needHealID = UnspecificTargetID;
 
             foreach (var member in partyList)
             {
                 if (member.ObjectId == 0)
                     continue;
 
-                var maxDistance = ActionManager.GetActionRange(actionId);
+                var maxDistance = ActionManager.GetActionRange(actionID);
+                var withinRange = Vector3.DistanceSquared(member.Position, DService.ObjectTable.LocalPlayer.Position) <= maxDistance * maxDistance;
                 var memberDead  = member.GameObject.IsDead || member.CurrentHP <= 0;
-                if (memberDead ||
-                    Vector3.DistanceSquared(member.Position, DService.ObjectTable.LocalPlayer.Position) > maxDistance * maxDistance)
+                if (memberDead || !withinRange)
                     continue;
 
                 var ratio = member.CurrentHP / (float)member.MaxHP;
                 if (ratio < lowRatio && ratio <= config.NeedHealThreshold)
                 {
                     lowRatio   = ratio;
-                    needHealId = member.ObjectId;
+                    needHealID = member.ObjectId;
                 }
             }
 
-            return needHealId;
+            return needHealID;
         }
 
         private static uint TargetNeedDispel(bool reverse = false)
@@ -1010,7 +1031,7 @@ public class HealerHelper : DailyModuleBase
             var localStatus = DService.ObjectTable.LocalPlayer.StatusList;
             foreach (var status in localStatus)
             {
-                if (PresetSheet.DispellableStatuses.ContainsKey(status.StatusId))
+                if (PresetSheet.DispellableStatuses.ContainsKey(status.StatusID))
                     return LocalPlayerState.EntityID;
             }
 
@@ -1024,9 +1045,9 @@ public class HealerHelper : DailyModuleBase
                     continue;
 
                 var maxDistance = ActionManager.GetActionRange(7568);
+                var withinRange = Vector3.DistanceSquared(member.Position, DService.ObjectTable.LocalPlayer.Position) <= maxDistance * maxDistance;
                 var memberDead  = member.GameObject.IsDead || member.CurrentHP <= 0;
-                if (memberDead ||
-                    Vector3.DistanceSquared(member.Position, DService.ObjectTable.LocalPlayer.Position) > maxDistance * maxDistance)
+                if (memberDead || !withinRange)
                     continue;
 
                 foreach (var status in member.Statuses)
@@ -1036,10 +1057,10 @@ public class HealerHelper : DailyModuleBase
                 }
             }
 
-            return UnspecificTargetId;
+            return UnspecificTargetID;
         }
 
-        private static uint TargetNeedRaise(uint actionId, bool reverse = false)
+        private static uint TargetNeedRaise(uint actionID, bool reverse = false)
         {
             var partyList = DService.PartyList;
 
@@ -1052,32 +1073,31 @@ public class HealerHelper : DailyModuleBase
                 if (member.ObjectId == 0)
                     continue;
 
-                var maxDistance = ActionManager.GetActionRange(actionId);
-                var memberDead  = member.GameObject.IsDead || member.CurrentHP <= 0;
-                if (memberDead &&
-                    Vector3.DistanceSquared(member.Position, DService.ObjectTable.LocalPlayer.Position) <= maxDistance * maxDistance)
+                var maxDistance  = ActionManager.GetActionRange(actionID);
+                var withinRange  = Vector3.DistanceSquared(member.Position, DService.ObjectTable.LocalPlayer.Position) <= maxDistance * maxDistance;
+                var memberRaised = member.Statuses.Any(x => x.StatusId is 148);
+                var memberDead   = member.GameObject.IsDead || member.CurrentHP <= 0;
+                if (memberDead && !memberRaised && withinRange)
                     return member.ObjectId;
             }
 
-            return UnspecificTargetId;
+            return UnspecificTargetID;
         }
 
-        public bool IsHostile(IGameObject? gameObject)
+        public static unsafe bool IsHealable(IGameObject? gameObject)
         {
-            if (gameObject is not IBattleChara battleChara)
-                return false;
-
-            return battleChara.SubKind == (byte)BattleNpcSubKind.Enemy;
+            var battleChara = CharacterManager.Instance()->LookupBattleCharaByEntityId(gameObject.EntityID);
+            return battleChara is not null && ActionManager.CanUseActionOnTarget(3595, (GameObject*)battleChara);
         }
 
-        public void OnPreHeal(ref ulong targetId, ref uint actionId, ref bool isPrevented)
+        public void OnPreHeal(ref ulong targetID, ref uint actionID, ref bool isPrevented)
         {
-            var currentTarget = DService.ObjectTable.SearchById(targetId);
-            if (IsHostile(currentTarget) || targetId == UnspecificTargetId)
+            var currentTarget = DService.ObjectTable.SearchByID(targetID);
+            if (targetID == UnspecificTargetID || !IsHealable(currentTarget))
             {
                 // find the target with the lowest HP ratio within range and satisfy the threshold
-                targetId = TargetNeedHeal(actionId);
-                if (targetId == UnspecificTargetId)
+                targetID = TargetNeedHeal(actionID);
+                if (targetID == UnspecificTargetID)
                 {
                     switch (config.OverhealTarget)
                     {
@@ -1086,27 +1106,27 @@ public class HealerHelper : DailyModuleBase
                             return;
 
                         case OverhealTarget.Local:
-                            targetId = LocalPlayerState.EntityID;
+                            targetID = LocalPlayerState.EntityID;
                             break;
 
                         case OverhealTarget.FirstTank:
                             var partyList       = DService.PartyList;
                             var sortedPartyList = partyList.OrderBy(member => FetchMemberIndex(member.ObjectId) ?? 0).ToList();
                             var firstTank       = sortedPartyList.FirstOrDefault(m => m.ClassJob.Value.Role == 1);
-                            var maxDistance     = ActionManager.GetActionRange(actionId);
-                            targetId = firstTank is not null &&
+                            var maxDistance     = ActionManager.GetActionRange(actionID);
+                            targetID = firstTank is not null &&
                                        Vector3.DistanceSquared(firstTank.Position, DService.ObjectTable.LocalPlayer.Position) <= maxDistance * maxDistance
                                            ? firstTank.ObjectId
                                            : LocalPlayerState.EntityID;
                             break;
 
                         default:
-                            targetId = LocalPlayerState.EntityID;
+                            targetID = LocalPlayerState.EntityID;
                             break;
                     }
                 }
 
-                var member = FetchMember((uint)targetId);
+                var member = FetchMember((uint)targetID);
                 if (member is not null)
                 {
                     var name         = member.Name.ExtractText();
@@ -1121,21 +1141,21 @@ public class HealerHelper : DailyModuleBase
             }
         }
 
-        public void OnPreDispel(ref ulong targetId, ref bool isPrevented)
+        public void OnPreDispel(ref ulong targetID, ref bool isPrevented)
         {
-            var currentTarget = DService.ObjectTable.SearchById(targetId);
-            if (currentTarget is IBattleNpc || targetId == UnspecificTargetId)
+            var currentTarget = DService.ObjectTable.SearchByID(targetID);
+            if (currentTarget is IBattleNPC || targetID == UnspecificTargetID)
             {
                 // find target with dispellable status within range
-                targetId = TargetNeedDispel(config.DispelOrder is DispelOrderStatus.Reverse);
-                if (targetId == UnspecificTargetId)
+                targetID = TargetNeedDispel(config.DispelOrder is DispelOrderStatus.Reverse);
+                if (targetID == UnspecificTargetID)
                 {
                     isPrevented = true;
                     return;
                 }
 
                 // dispel target
-                var member = FetchMember((uint)targetId);
+                var member = FetchMember((uint)targetID);
                 if (member is not null)
                 {
                     var name         = member.Name.ExtractText();
@@ -1150,21 +1170,21 @@ public class HealerHelper : DailyModuleBase
             }
         }
 
-        public void OnPreRaise(ref ulong targetId, ref uint actionId, ref bool isPrevented)
+        public void OnPreRaise(ref ulong targetID, ref uint actionID, ref bool isPrevented)
         {
-            var currentTarget = DService.ObjectTable.SearchById(targetId);
-            if (currentTarget is IBattleNpc || targetId == UnspecificTargetId)
+            var currentTarget = DService.ObjectTable.SearchByID(targetID);
+            if (currentTarget is IBattleNPC || targetID == UnspecificTargetID)
             {
                 // find target with dead status within range
-                targetId = TargetNeedRaise(actionId, config.RaiseOrder is RaiseOrderStatus.Reverse);
-                if (targetId == UnspecificTargetId)
+                targetID = TargetNeedRaise(actionID, config.RaiseOrder is RaiseOrderStatus.Reverse);
+                if (targetID == UnspecificTargetID)
                 {
                     isPrevented = true;
                     return;
                 }
 
                 // raise target
-                var member = FetchMember((uint)targetId);
+                var member = FetchMember((uint)targetID);
                 if (member is not null)
                 {
                     var name         = member.Name.ExtractText();

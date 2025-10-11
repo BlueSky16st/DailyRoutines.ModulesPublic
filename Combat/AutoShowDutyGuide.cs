@@ -55,7 +55,7 @@ public class AutoShowDutyGuide : DailyModuleBase
 
     protected override void ConfigUI()
     {
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("WorkTheory")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("WorkTheory")}:");
         ImGuiOm.HelpMarker(GetLoc("AutoShowDutyGuide-TheoryHelp"), 30f);
 
         ImGui.SetNextItemWidth(80f * GlobalFontScale);
@@ -99,7 +99,7 @@ public class AutoShowDutyGuide : DailyModuleBase
     {
         using (FontManager.GetUIFont(ModuleConfig.FontScale).Push())
         {
-            if (ImGuiOm.SelectableImageWithText(NoviceIcon.GetWrapOrEmpty().ImGuiHandle, ScaledVector2(24f),
+            if (ImGuiOm.SelectableImageWithText(NoviceIcon.GetWrapOrEmpty().Handle, ScaledVector2(24f),
                                                 GetLoc("AutoShowDutyGuide-Source"), false))
                 Util.OpenLink($"https://ff14.org/duty/{CurrentDuty}.htm");
 

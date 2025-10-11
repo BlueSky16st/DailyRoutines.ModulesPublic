@@ -20,11 +20,9 @@ public unsafe class AutoAddChatPrefixSuffix : DailyModuleBase
         Category    = ModuleCategories.System,
     };
 
-    private static readonly CompSig ProcessSendedChatSig = new("E8 ?? ?? ?? ?? FE 86 ?? ?? ?? ?? C7 86 ?? ?? ?? ?? ?? ?? ?? ??");
-
-    private delegate void ProcessSendedChatDelegate(ShellCommandModule* module, Utf8String* message, UIModule* uiModule);
-
-    private static Hook<ProcessSendedChatDelegate>? ProcessSendedChatHook;
+    private static readonly CompSig                          ProcessSendedChatSig = new("E8 ?? ?? ?? ?? FE 87 ?? ?? ?? ?? C7 87 ?? ?? ?? ?? ?? ?? ?? ??");
+    private delegate        void                             ProcessSendedChatDelegate(ShellCommandModule* module, Utf8String* message, UIModule* uiModule);
+    private static          Hook<ProcessSendedChatDelegate>? ProcessSendedChatHook;
 
     private static Config? ModuleConfig;
 
@@ -35,7 +33,7 @@ public unsafe class AutoAddChatPrefixSuffix : DailyModuleBase
         {
             config = new Config();
             if (LanguageManager.CurrentLanguage == "ChineseSimplified")
-                config.Blacklist.Add(".", "。", "？", "?", "！", "!", "吗", "吧", "呢", "啊", "呗", "呀", "阿", "哦", "嘛", "咯",
+                config.Blacklist.AddRange(".", "。", "？", "?", "！", "!", "吗", "吧", "呢", "啊", "呗", "呀", "阿", "哦", "嘛", "咯",
                                      "哎", "啦", "哇", "呵", "哈", "奥", "嗷");
             
             SaveConfig(config);
@@ -77,7 +75,7 @@ public unsafe class AutoAddChatPrefixSuffix : DailyModuleBase
         ImGui.Spacing();
         
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightSkyBlue, GetLoc("Blacklist"));
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("Blacklist"));
         
         ImGui.SameLine();
         if (ImGuiOm.ButtonIconWithText(FontAwesomeIcon.Plus, GetLoc("Add")))

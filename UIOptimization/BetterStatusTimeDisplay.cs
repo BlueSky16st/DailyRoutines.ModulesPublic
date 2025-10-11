@@ -45,13 +45,13 @@ public class BetterStatusTimeDisplay : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        FrameworkManager.Register(OnUpdate, throttleMS: 1000);
+        FrameworkManager.Reg(OnUpdate, throttleMS: 1000);
     }
 
     protected override void ConfigUI()
     {
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("BetterStatusTimeDisplay-ChooseTimeFormat")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("BetterStatusTimeDisplay-ChooseTimeFormat")}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(100f * GlobalFontScale);
@@ -82,7 +82,7 @@ public class BetterStatusTimeDisplay : DailyModuleBase
 
         for (var i = 0; i < 30; i++)
         {
-            var text = SeString.Parse(stringArray->StringArray[37 + i]).TextValue;
+            var text = SeString.Parse(stringArray->StringArray[37 + i].Value).TextValue;
             if (string.IsNullOrEmpty(text)) continue;
 
             var id = PresetSheet.Statuses.FirstOrDefault(x => x.Value.Name == text.Split("\n")[0]).Key;
@@ -93,7 +93,7 @@ public class BetterStatusTimeDisplay : DailyModuleBase
                 if (key == -1 || !ArrayStatusPair.TryGetValue(key, out id)) continue;
             }
 
-            var time = SeString.Parse(stringArray->StringArray[7 + i]).ToString();
+            var time = SeString.Parse(stringArray->StringArray[7 + i].Value).ToString();
             if (string.IsNullOrEmpty(time) ||
                (!time.Contains('h') && !time.Contains("小时") && time.Length <= 3)) continue;
 
@@ -120,10 +120,8 @@ public class BetterStatusTimeDisplay : DailyModuleBase
         }
     }
 
-    protected override void Uninit()
-    {
-       FrameworkManager.Unregister(OnUpdate);
-    }
+    protected override void Uninit() => 
+        FrameworkManager.Unreg(OnUpdate);
 
     public class Config : ModuleConfiguration
     {

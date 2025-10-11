@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
 using DailyRoutines.Managers;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
@@ -28,8 +27,8 @@ public unsafe class AutoLogin : DailyModuleBase
 
     private static readonly Dictionary<BehaviourMode, string> BehaviourModeLoc = new()
     {
-        { BehaviourMode.Once, GetLoc("AutoLogin-Once") },
-        { BehaviourMode.Repeat, GetLoc("AutoLogin-Repeat") }
+        [BehaviourMode.Once]   = GetLoc("AutoLogin-Once"),
+        [BehaviourMode.Repeat] = GetLoc("AutoLogin-Repeat")
     };
 
     private const string Command = "/pdrlogin";
@@ -49,17 +48,14 @@ public unsafe class AutoLogin : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig =   LoadConfig<Config>() ?? new();
-        TaskHelper   ??= new TaskHelper { TimeLimitMS = 180_000 };
+        TaskHelper   ??= new() { TimeLimitMS = 180_000 };
 
         DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "_TitleMenu", OnTitleMenu);
         DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,  "Dialogue",   OnDialogue);
-        if (IsAddonAndNodesReady(TitleMenu)) 
-            OnTitleMenu(AddonEvent.PostSetup, null);
+        OnTitleMenu(AddonEvent.PostSetup, null);
 
-        CommandManager.AddCommand(Command, new(OnCommand)
-        {
-            HelpMessage = GetLoc("AutoLogin-CommandHelp")
-        });
+        CommandManager.AddCommand(Command, new(OnCommand) { HelpMessage = GetLoc("AutoLogin-CommandHelp") });
+        DService.ClientState.Login += OnLogin;
     }
 
     protected override void ConfigUI()
@@ -102,7 +98,7 @@ public unsafe class AutoLogin : DailyModuleBase
 
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(120f * GlobalFontScale);
-                    if (ImGui.InputInt("##AutoLogin-EnterCharaIndex", ref SelectedCharaIndex, 0, 0, ImGuiInputTextFlags.EnterReturnsTrue))
+                    if (ImGui.InputInt("##AutoLogin-EnterCharaIndex", ref SelectedCharaIndex, flags: ImGuiInputTextFlags.EnterReturnsTrue))
                         SelectedCharaIndex = Math.Clamp(SelectedCharaIndex, 0, 8);
                     ImGuiOm.TooltipHover(GetLoc("AutoLogin-CharaIndexInputTooltip"));
                 }
@@ -141,7 +137,7 @@ public unsafe class AutoLogin : DailyModuleBase
                     {
                         if (source)
                         {
-                            if (ImGui.SetDragDropPayload("LoginInfoReorder", nint.Zero, 0))
+                            if (ImGui.SetDragDropPayload("LoginInfoReorder", []))
                                 DropIndex = i;
 
                             ImGui.TextColored(ImGuiColors.DalamudYellow,
@@ -156,7 +152,7 @@ public unsafe class AutoLogin : DailyModuleBase
                     {
                         if (target)
                         {
-                            if (ImGui.AcceptDragDropPayload("LoginInfoReorder").NativePtr != null)
+                            if (ImGui.AcceptDragDropPayload("LoginInfoReorder").Handle != null)
                             {
                                 Swap(DropIndex, i);
                                 DropIndex = -1;
@@ -220,11 +216,14 @@ public unsafe class AutoLogin : DailyModuleBase
 
         ImGui.Spacing();
 
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("Command")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Command")}:");
 
         ImGui.SameLine();
         ImGui.Text(GetLoc("AutoLogin-AddCommandHelp", Command, Command));
     }
+    
+    private void OnLogin() => 
+        TaskHelper.Abort();
 
     private void OnCommand(string command, string args)
     {
@@ -263,14 +262,23 @@ public unsafe class AutoLogin : DailyModuleBase
 
     private void OnTitleMenu(AddonEvent eventType, AddonArgs? args)
     {
-        if (ModuleConfig.LoginInfos.Count <= 0) return;
-        if (ModuleConfig.Mode == BehaviourMode.Once && HasLoginOnce) return;
-        if (InterruptByConflictKey(TaskHelper, this)) return;
-        if (IsAddonAndNodesReady(LobbyDKT)) return;
-
-        SendEvent(AgentId.Lobby, 0, 4);
-
+        if (ModuleConfig.LoginInfos.Count <= 0                        ||
+            (ModuleConfig.Mode == BehaviourMode.Once && HasLoginOnce) ||
+            InterruptByConflictKey(TaskHelper, this)                  ||
+            IsAddonAndNodesReady(LobbyDKT)                            ||
+            DService.ClientState.IsLoggedIn)
+            return;
+        
         TaskHelper.Abort();
+        TaskHelper.Enqueue(() =>
+        {
+            if (IsAddonAndNodesReady(CharaSelectListMenu)) return true;
+            if (!IsAddonAndNodesReady(TitleMenu)) return false;
+
+            SendEvent(AgentId.Lobby, 0, 4);
+            return true;
+        });
+        
         if (ManualWorldID != 0 && ManualCharaIndex != -1)
             TaskHelper.Enqueue(() => SelectCharacter(ManualWorldID, ManualCharaIndex), "SelectCharaManual");
         else
@@ -349,7 +357,7 @@ public unsafe class AutoLogin : DailyModuleBase
         {
             try
             {
-                var worldString = SeString.Parse(stringArray[i]).ExtractText();
+                var worldString = SeString.Parse(stringArray[i].Value).ExtractText();
                 if (!worldString.Contains(worldName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 SendEvent(AgentId.Lobby, 0, 25, 0, i);
@@ -397,15 +405,14 @@ public unsafe class AutoLogin : DailyModuleBase
 
     protected override void Uninit()
     {
+        DService.ClientState.Login -= OnLogin;
+        CommandManager.RemoveCommand(Command);
+        
         DService.AddonLifecycle.UnregisterListener(OnTitleMenu);
         DService.AddonLifecycle.UnregisterListener(OnDialogue);
-
-        CommandManager.RemoveCommand(Command);
-
+        
         ResetStates();
         HasLoginOnce = false;
-
-        base.Uninit();
     }
 
     private class Config : ModuleConfiguration

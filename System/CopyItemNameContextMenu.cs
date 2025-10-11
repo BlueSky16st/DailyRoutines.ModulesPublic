@@ -43,14 +43,14 @@ public class CopyItemNameContextMenu : DailyModuleBase
         {
             if (args.Target is MenuTargetInventory { TargetItem: { ItemId: > 0 } item })
             {
-                MenuItem.SetRawItemId(item.ItemId);
+                MenuItem.SetRawItemID(item.ItemId);
 
                 args.AddMenuItem(MenuItem.Get());
 
                 if (item.GlamourId == 0)
                     return;
 
-                GlamourMenuItem.SetRawItemId(item.GlamourId);
+                GlamourMenuItem.SetRawItemID(item.GlamourId);
                 args.AddMenuItem(GlamourMenuItem.Get());
             }
 
@@ -80,31 +80,28 @@ public class CopyItemNameContextMenu : DailyModuleBase
 
         var prismBoxItem = ContextMenuItemManager.GetPrismBoxItem(args);
 
-        var itemId = prismBoxItem?.RowId ?? ContextMenuItemManager.CurrentItemID;
+        var itemID = prismBoxItem?.RowId ?? ContextMenuItemManager.CurrentItemID;
+        if (itemID == 0) return;
 
-        if (itemId == 0)
-            return;
-
-        MenuItem.SetRawItemId(itemId);
+        MenuItem.SetRawItemID(itemID);
         args.AddMenuItem(MenuItem.Get());
 
-        var glamourId = ContextMenuItemManager.CurrentGlamourID;
+        var glamourID = ContextMenuItemManager.CurrentGlamourID;
+        if (glamourID == 0) return;
 
-        if (glamourId == 0)
-            return;
-
-        GlamourMenuItem.SetRawItemId(glamourId);
+        GlamourMenuItem.SetRawItemID(glamourID);
         args.AddMenuItem(GlamourMenuItem.Get());
     }
 
     private sealed class CopyItemNameMenuItem(string name) : MenuItemBase
     {
-        public override string Name { get; protected set; } = name;
+        public override string Name       { get; protected set; } = name;
+        public override string Identifier { get; protected set; } = nameof(CopyItemNameContextMenu);
+        
         protected override bool WithDRPrefix { get; set; } = true;
 
         private uint ItemID;
         
-
         protected override unsafe void OnClicked(IMenuItemClickedArgs args)
         {
             var itemName = string.Empty;
@@ -128,7 +125,7 @@ public class CopyItemNameContextMenu : DailyModuleBase
             ItemID = 0;
         }
 
-        public void SetRawItemId(uint id) => 
+        public void SetRawItemID(uint id) => 
             ItemID = id;
     }
 }

@@ -34,9 +34,8 @@ public class AutoTankStance : DailyModuleBase
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
-
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        ModuleConfig =   LoadConfig<Config>() ?? new();
+        TaskHelper   ??= new() { TimeLimitMS = 30_000 };
 
         DService.ClientState.TerritoryChanged += OnZoneChanged;
         DService.DutyState.DutyRecommenced    += OnDutyRecommenced;
@@ -55,7 +54,10 @@ public class AutoTankStance : DailyModuleBase
         TaskHelper.Abort();
         
         if (!IsValidPVEDuty()) return;
-        if (ModuleConfig.OnlyAutoStanceWhenOneTank && GameState.ContentFinderConditionData.ContentMemberType.Value.TanksPerParty != 1) return;
+        
+        // TODO: 表数据定义歪了, 所以
+        if (ModuleConfig.OnlyAutoStanceWhenOneTank && 
+            GameState.ContentFinderConditionData.ContentMemberType.Value.HealersPerParty != 1) return;
         
         TaskHelper.DelayNext(1000);
         TaskHelper.Enqueue(CheckCurrentJob);
@@ -90,8 +92,6 @@ public class AutoTankStance : DailyModuleBase
     {
         DService.ClientState.TerritoryChanged -= OnZoneChanged;
         DService.DutyState.DutyRecommenced -= OnDutyRecommenced;
-
-        base.Uninit();
     }
 
     private class Config : ModuleConfiguration

@@ -29,31 +29,31 @@ public unsafe class Alphascape3Helper : DailyModuleBase
 
     private static void OnZoneChanged(ushort zoneID)
     {
-        FrameworkManager.Unregister(OnUpdate);
+        FrameworkManager.Unreg(OnUpdate);
         if (zoneID != 800) return;
         
-        FrameworkManager.Register(OnUpdate, throttleMS: 1000);
+        FrameworkManager.Reg(OnUpdate, throttleMS: 1000);
     }
 
     private static void OnUpdate(IFramework framework)
     {
         if (DService.ClientState.TerritoryType != 800)
         {
-            FrameworkManager.Unregister(OnUpdate);
+            FrameworkManager.Unreg(OnUpdate);
             return;
         }
 
         if (Control.GetLocalPlayer() == null) return;
         
-        var obj = DService.ObjectTable.FirstOrDefault(x => x.ObjectKind == ObjectKind.BattleNpc && x.DataId == 9638);
+        var obj = DService.ObjectTable.FirstOrDefault(x => x.ObjectKind == ObjectKind.BattleNpc && x.DataID == 9638);
         if (obj == null || !obj.IsTargetable) return;
 
-        new UseActionPacket(ActionType.Action, 12911, obj.EntityId, Control.GetLocalPlayer()->Rotation).Send();
+        new UseActionPacket(ActionType.Action, 12911, obj.EntityID, Control.GetLocalPlayer()->Rotation).Send();
     }
 
     protected override void Uninit()
     {
         DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        FrameworkManager.Unregister(OnUpdate);
+        FrameworkManager.Unreg(OnUpdate);
     }
 }

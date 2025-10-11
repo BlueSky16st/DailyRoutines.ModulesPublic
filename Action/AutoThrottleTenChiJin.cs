@@ -1,12 +1,9 @@
-using DailyRoutines.Abstracts;
-using DailyRoutines.Managers;
-using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using System.Collections.Generic;
+using DailyRoutines.Abstracts;
 using DailyRoutines.Infos;
-using Dalamud.Hooking;
+using DailyRoutines.Managers;
 
-namespace DailyRoutines.Modules;
+namespace DailyRoutines.ModulesPublic;
 
 public unsafe class AutoThrottleTenChiJin : DailyModuleBase
 {
@@ -23,14 +20,13 @@ public unsafe class AutoThrottleTenChiJin : DailyModuleBase
     
     private static readonly HashSet<uint> UsedShinobiActions = [];
 
-    protected override void Init() => GamePacketManager.Register(OnPreSendActionPacket);
+    protected override void Init() => GamePacketManager.RegPreSendPacket(OnPreSendActionPacket);
     
     private static void OnPreSendActionPacket(ref bool isPrevented, int opcode, ref byte* packet, ref ushort priority)
     {
         if (opcode != GamePacketOpcodes.UseActionOpcode) return;
 
-        var localPlayer = Control.GetLocalPlayer();
-        if (localPlayer == null || localPlayer->ClassJob != 30) return;
+        if (LocalPlayerState.ClassJob != 30) return;
         
         var data = (UseActionPacket*)packet;
         if (ShinobiActionsStart.Contains(data->ID))
@@ -47,5 +43,5 @@ public unsafe class AutoThrottleTenChiJin : DailyModuleBase
             UsedShinobiActions.Clear();
     }
 
-    protected override void Uninit() => GamePacketManager.Unregister(OnPreSendActionPacket);
+    protected override void Uninit() => GamePacketManager.Unreg(OnPreSendActionPacket);
 }

@@ -56,7 +56,7 @@ public class AutoCheckFoodUsage : DailyModuleBase
 
     protected override void ConfigUI()
     {
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("AutoCheckFoodUsage-Checkpoint")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoCheckFoodUsage-Checkpoint")}:");
 
         using (ImRaii.PushIndent())
         {
@@ -78,17 +78,15 @@ public class AutoCheckFoodUsage : DailyModuleBase
                 using (ImRaii.PushIndent())
                 {
                     ImGui.AlignTextToFramePadding();
-                    ImGui.TextColored(LightSkyBlue,
+                    ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(),
                                       $"{GetLoc("AutoCheckFoodUsage-WhenConditionBegin")}:");
 
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(200f * GlobalFontScale);
-                    using (var combo = ImRaii.Combo("###ConditionBeginCombo", GetLoc(
-                                                        "AutoCheckFoodUsage-SelectedAmount",
-                                                        ModuleConfig.ConditionStart.Count),
+                    using (var combo = ImRaii.Combo("###ConditionBeginCombo", GetLoc("AutoCheckFoodUsage-SelectedAmount", ModuleConfig.ConditionStart.Count),
                                                     ImGuiComboFlags.HeightLarge))
                     {
-                        if (combo.Success)
+                        if (combo)
                         {
                             if (ImGui.IsWindowAppearing())
                                 ConditionSearch = string.Empty;
@@ -117,23 +115,22 @@ public class AutoCheckFoodUsage : DailyModuleBase
                     }
 
                     ImGui.AlignTextToFramePadding();
-                    ImGui.TextColored(LightSkyBlue,
+                    ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(),
                                       $"{GetLoc("AutoCheckFoodUsage-WhenConditionEnd")}:");
 
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(200f * GlobalFontScale);
-                    using (var combo = ImRaii.Combo("###ConditionEndCombo", GetLoc(
-                                                        "AutoCheckFoodUsage-SelectedAmount",
-                                                        ModuleConfig.ConditionEnd.Count), ImGuiComboFlags.HeightLarge))
+                    using (var combo = ImRaii.Combo("###ConditionEndCombo", GetLoc("AutoCheckFoodUsage-SelectedAmount", ModuleConfig.ConditionEnd.Count), 
+                                                    ImGuiComboFlags.HeightLarge))
                     {
-                        if (combo.Success)
+                        if (combo)
                         {
                             if (ImGui.IsWindowAppearing())
                                 ConditionSearch = string.Empty;
 
                             ImGui.SetNextItemWidth(-1f);
-                            ImGui.InputTextWithHint("###ConditionEndSearch", GetLoc("PleaseSearch"),
-                                                    ref ConditionSearch, 128);
+                            ImGui.InputTextWithHint("###ConditionEndSearch", GetLoc("PleaseSearch"), ref ConditionSearch, 128);
+                            
                             ImGui.Separator();
 
                             foreach (var conditionFlag in Enum.GetValues<ConditionFlag>())
@@ -145,8 +142,7 @@ public class AutoCheckFoodUsage : DailyModuleBase
                                     !conditionName.Contains(ConditionSearch, StringComparison.OrdinalIgnoreCase))
                                     continue;
 
-                                if (ImGui.Selectable($"{conditionName}###{conditionFlag}_End",
-                                                     ModuleConfig.ConditionEnd.Contains(conditionFlag)))
+                                if (ImGui.Selectable($"{conditionName}###{conditionFlag}_End", ModuleConfig.ConditionEnd.Contains(conditionFlag)))
                                 {
                                     if (!ModuleConfig.ConditionEnd.Remove(conditionFlag))
                                         ModuleConfig.ConditionEnd.Add(conditionFlag);
@@ -161,7 +157,7 @@ public class AutoCheckFoodUsage : DailyModuleBase
             ScaledDummy(2f);
         }
 
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("Settings")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Settings")}:");
 
         using (ImRaii.PushIndent())
         {
@@ -196,14 +192,10 @@ public class AutoCheckFoodUsage : DailyModuleBase
         {
             if (popup)
             {
-                ImGui.TextColored(LightSkyBlue,
-                                  $"{GetLoc("AutoCheckFoodUsage-AddNewPreset")}:");
+                ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoCheckFoodUsage-AddNewPreset")}:");
 
                 using (ImRaii.PushIndent())
                 {
-                    ImGui.Dummy(Vector2.One);
-
-                    ImGui.SameLine();
                     ImGui.AlignTextToFramePadding();
                     ImGui.Text($"{GetLoc("Food")}:");
 
@@ -217,7 +209,7 @@ public class AutoCheckFoodUsage : DailyModuleBase
                                           {
                                               var icon = ImageHelper.GetGameIcon(x.Icon, SelectItemIsHQ);
 
-                                              if (ImGuiOm.SelectableImageWithText(icon.ImGuiHandle, ScaledVector2(20f),
+                                              if (ImGuiOm.SelectableImageWithText(icon.Handle, ScaledVector2(20f),
                                                                                   x.Name.ExtractText(), x.RowId == SelectedItem,
                                                                                   ImGuiSelectableFlags.DontClosePopups))
                                                   SelectedItem = SelectedItem == x.RowId ? 0 : x.RowId;

@@ -29,7 +29,7 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
     {
         TaskHelper ??= new();
         Overlay ??= new(this);
-
+        
         HandInCollectables ??= HandInCollectablesSig.GetDelegate<HandInCollectablesDelegate>();
 
         DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "CollectablesShop", OnAddon);
@@ -96,7 +96,7 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
                 });
                 TaskHelper.Enqueue(() => !OccupiedInEvent);
                 TaskHelper.Enqueue(() => GamePacketManager.SendPackt(
-                                       new EventStartPackt(DService.ObjectTable.LocalPlayer.GameObjectId,
+                                       new EventStartPackt(DService.ObjectTable.LocalPlayer.GameObjectID,
                                                            GetScriptEventID(DService.ClientState.TerritoryType))));
             }
         }

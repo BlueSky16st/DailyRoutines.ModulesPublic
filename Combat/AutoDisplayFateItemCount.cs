@@ -51,11 +51,11 @@ public unsafe class AutoDisplayFateItemCount : DailyModuleBase
         
         ImGui.SetWindowPos(new Vector2(ToDoList->X, ToDoList->Y));
         
-        ImGui.Image(texture.GetWrapOrEmpty().ImGuiHandle, new(ImGui.GetTextLineHeightWithSpacing()));
+        ImGui.Image(texture.GetWrapOrEmpty().Handle, new(ImGui.GetTextLineHeightWithSpacing()));
         
         ImGui.SameLine();
         ImGui.AlignTextToFramePadding();
-        ImGuiOm.TextOutlined(Orange, $"{fateData.EventItem.Value.Singular}");
+        ImGuiOm.TextOutlined(KnownColor.Orange.ToVector4(), $"{fateData.EventItem.Value.Singular}");
 
         ImGui.Spacing();
         
@@ -64,16 +64,16 @@ public unsafe class AutoDisplayFateItemCount : DailyModuleBase
         
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGuiOm.TextOutlined(White, $"{GetLoc("AutoDisplayFateItemCount-HoldCount")}:");
+        ImGuiOm.TextOutlined(KnownColor.White.ToVector4(), $"{GetLoc("AutoDisplayFateItemCount-HoldCount")}:");
 
         ImGui.TableNextColumn();
-        ImGuiOm.TextOutlined(White, $"{InventoryManager.Instance()->GetInventoryItemCount(fateData.EventItem.RowId)}");
+        ImGuiOm.TextOutlined(KnownColor.White.ToVector4(), $"{InventoryManager.Instance()->GetInventoryItemCount(fateData.EventItem.RowId)}");
 
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGuiOm.TextOutlined(White, $"{GetLoc("AutoDisplayFateItemCount-HandInCount")}:");
+        ImGuiOm.TextOutlined(KnownColor.White.ToVector4(), $"{GetLoc("AutoDisplayFateItemCount-HandInCount")}:");
 
         ImGui.TableNextColumn();
-        ImGuiOm.TextOutlined(White, $"{currentFate->HandInCount}");
+        ImGuiOm.TextOutlined(KnownColor.White.ToVector4(), $"{currentFate->HandInCount}");
     }
 }

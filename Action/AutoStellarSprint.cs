@@ -1,5 +1,4 @@
 using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
 using DailyRoutines.Managers;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -12,7 +11,7 @@ public unsafe class AutoStellarSprint : DailyModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoStellarSprintTitle"), // 自动月球冲刺
+        Title       = GetLoc("AutoStellarSprintTitle"),
         Description = GetLoc("AutoStellarSprintDescription"),
         Category    = ModuleCategories.Action,
         Author      = ["Due"]
@@ -32,10 +31,10 @@ public unsafe class AutoStellarSprint : DailyModuleBase
     private void OnTerritoryChange(ushort zone)
     {
         TaskHelper.Abort();
-        FrameworkManager.Unregister(OnFrameworkUpdate);
+        FrameworkManager.Unreg(OnFrameworkUpdate);
 
-        if (!LuminaGetter.TryGetRow<TerritoryType>(zone, out var zoneData) || zoneData is not { TerritoryIntendedUse.RowId: 60 }) return;
-        FrameworkManager.Register(OnFrameworkUpdate, throttleMS: 2_000);
+        if (GameState.TerritoryIntendedUse != 60) return;
+        FrameworkManager.Reg(OnFrameworkUpdate, throttleMS: 2_000);
     }
 
     private void OnFrameworkUpdate(IFramework _)
@@ -50,7 +49,7 @@ public unsafe class AutoStellarSprint : DailyModuleBase
 
         if (GameState.TerritoryIntendedUse != 60)
         {
-            FrameworkManager.Unregister(OnFrameworkUpdate);
+            FrameworkManager.Unreg(OnFrameworkUpdate);
             return true;
         }
         
@@ -66,9 +65,7 @@ public unsafe class AutoStellarSprint : DailyModuleBase
 
     protected override void Uninit()
     {
-        FrameworkManager.Unregister(OnFrameworkUpdate);
+        FrameworkManager.Unreg(OnFrameworkUpdate);
         DService.ClientState.TerritoryChanged -= OnTerritoryChange;
-        
-        base.Uninit();
     }
 }

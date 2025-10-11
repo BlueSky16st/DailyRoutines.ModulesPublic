@@ -24,9 +24,9 @@ public class AutoReplaceLocationAction : DailyModuleBase
     };
 
     // 返回值为 GameObject*, 无对象则为 0
-    private static readonly CompSig ParseActionCommandArgSig = new("E8 ?? ?? ?? ?? 48 8B 5C 24 30 EB 0C");
-    private delegate nint ParseActionCommandArgDelegate(nint a1, nint arg, bool a3, bool a4);
-    private static Hook<ParseActionCommandArgDelegate>? ParseActionCommandArgHook;
+    private static readonly CompSig                              ParseActionCommandArgSig = new("E8 ?? ?? ?? ?? 33 ED 4C 8B F8");
+    private delegate        nint                                 ParseActionCommandArgDelegate(nint a1, nint arg, bool a3, bool a4);
+    private static          Hook<ParseActionCommandArgDelegate>? ParseActionCommandArgHook;
 
     private static Config? ModuleConfig;
 
@@ -80,7 +80,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
 
     private void DrawConfigBothers()
     {
-        ImGui.TextColored(LightSteelBlue1, $"{GetLoc("Settings")}");
+        ImGui.TextColored(KnownColor.LightSteelBlue.ToVector4(), $"{GetLoc("Settings")}");
         using var indent = ImRaii.PushIndent();
 
         // 通知发送
@@ -99,7 +99,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
 
         // 重定向距离
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("AutoReplaceLocationAction-AdjustDistance")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoReplaceLocationAction-AdjustDistance")}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(80f * GlobalFontScale);
@@ -113,7 +113,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
 
         // 黑名单副本
         ImGui.SameLine();
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("AutoReplaceLocationAction-BlacklistContents")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoReplaceLocationAction-BlacklistContents")}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(300f * GlobalFontScale);
@@ -123,7 +123,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
 
     private void DrawConfigActions()
     {
-        ImGui.TextColored(LightSteelBlue1, $"{GetLoc("Action")}");
+        ImGui.TextColored(KnownColor.LightSteelBlue.ToVector4(), $"{GetLoc("Action")}");
         using var indent = ImRaii.PushIndent();
 
         // 技能启用情况
@@ -139,7 +139,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
             }
 
             ImGui.SameLine();
-            ImGuiOm.TextImage(action.Name.ExtractText(), ImageHelper.GetGameIcon(action.Icon).ImGuiHandle, ScaledVector2(20f));
+            ImGuiOm.TextImage(action.Name.ExtractText(), ImageHelper.GetGameIcon(action.Icon).Handle, ScaledVector2(20f));
         }
 
         foreach (var actionPair in ModuleConfig.EnabledPetActions)
@@ -154,7 +154,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
             }
 
             ImGui.SameLine();
-            ImGuiOm.TextImage(action.Name.ExtractText(), ImageHelper.GetGameIcon((uint)action.Icon).ImGuiHandle, ScaledVector2(20f));
+            ImGuiOm.TextImage(action.Name.ExtractText(), ImageHelper.GetGameIcon((uint)action.Icon).Handle, ScaledVector2(20f));
         }
     }
 
@@ -163,7 +163,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
         var agent = AgentMap.Instance();
         if (agent == null) return;
 
-        ImGui.TextColored(LightSteelBlue1, $"{GetLoc("AutoReplaceLocationAction-CenterPointData")}");
+        ImGui.TextColored(KnownColor.LightSteelBlue.ToVector4(), $"{GetLoc("AutoReplaceLocationAction-CenterPointData")}");
         using var indent = ImRaii.PushIndent();
 
         var isMapValid = LuminaGetter.TryGetRow<Map>(DService.ClientState.MapId, out var currentMapData) && 
@@ -173,7 +173,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
         using var disabled = ImRaii.Disabled(!isMapValid);
 
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("CurrentMap")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("CurrentMap")}:");
 
         ImGui.SameLine();
         ImGui.Text($"{currentMapPlaceName} / {currentMapPlaceNameSub}");
@@ -193,18 +193,18 @@ public class AutoReplaceLocationAction : DailyModuleBase
             ClearCenterPoint();
 
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(LightSkyBlue, $"{GetLoc("AutoReplaceLocationAction-CustomCenterPoint")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoReplaceLocationAction-CustomCenterPoint")}:");
 
-        using (ImRaii.Disabled(!agent->IsFlagMarkerSet || agent->FlagMapMarker.MapId != DService.ClientState.MapId))
+        using (ImRaii.Disabled(agent->FlagMarkerCount == 0 || agent->FlagMapMarkers[0].MapId != DService.ClientState.MapId))
         {
             ImGui.SameLine();
             if (ImGui.Button(GetLoc("AutoReplaceLocationAction-AddFlagMarker")))
             {
                 ModuleConfig.CustomMarkers.TryAdd(DService.ClientState.MapId, []);
-                ModuleConfig.CustomMarkers[DService.ClientState.MapId].Add(new(agent->FlagMapMarker.XFloat, agent->FlagMapMarker.YFloat));
+                ModuleConfig.CustomMarkers[DService.ClientState.MapId].Add(new(agent->FlagMapMarkers[0].XFloat, agent->FlagMapMarkers[0].YFloat));
                 SaveConfig(ModuleConfig);
 
-                agent->IsFlagMarkerSet = false;
+                agent->FlagMarkerCount = 0;
                 MarkCenterPoint();
             }
         }
@@ -280,8 +280,13 @@ public class AutoReplaceLocationAction : DailyModuleBase
     }
 
     private static void OnPreUseActionLocation(
-        ref bool isPrevented, ref ActionType type, ref uint actionID,
-        ref ulong targetID, ref Vector3 location, ref uint extraParam)
+        ref bool       isPrevented,
+        ref ActionType type,
+        ref uint       actionID,
+        ref ulong      targetID,
+        ref Vector3    location,
+        ref uint       extraParam,
+        ref byte       a7)
     {
         if (type != ActionType.Action) return;
         if (!ModuleConfig.EnabledActions.TryGetValue(actionID, out var isEnabled) || (!isEnabled && !IsNeedToReplace))
@@ -289,14 +294,15 @@ public class AutoReplaceLocationAction : DailyModuleBase
             IsNeedToReplace = false;
             return;
         }
+
         IsNeedToReplace = false;
 
         if (ModuleConfig.BlacklistContent.Contains(DService.ClientState.TerritoryType)) return;
-        if (!ZoneMapMarkers.TryGetValue(DService.ClientState.MapId, out var markers)) 
+        if (!ZoneMapMarkers.TryGetValue(DService.ClientState.MapId, out var markers))
             markers = [];
 
         var modifiedLocation = location;
-        if (HandleCustomLocation(ref modifiedLocation) ||
+        if (HandleCustomLocation(ref modifiedLocation)       ||
             HandleMapLocation(markers, ref modifiedLocation) ||
             HandlePresetCenterLocation(ref modifiedLocation))
         {
@@ -410,7 +416,7 @@ public class AutoReplaceLocationAction : DailyModuleBase
 
     protected override void Uninit()
     {
-        UseActionManager.UnregPreUseActionLocation(OnPreUseActionLocation);
+        UseActionManager.Unreg(OnPreUseActionLocation);
         ExecuteCommandManager.Unregister(OnPreExecuteCommandComplexLocation);
 
         base.Uninit();
