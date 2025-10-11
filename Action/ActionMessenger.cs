@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using DailyRoutines.Abstracts;
-using DailyRoutines.Managers;
 using DailyRoutines.Widgets;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
@@ -50,10 +49,10 @@ public class ActionMessenger : DailyModuleBase
 
     protected override void Uninit()
     {
-        UseActionManager.UnregCharacterStartCast(PostCharacterStartCast);
+        UseActionManager.Unreg(PostCharacterStartCast);
         // UseActionManager.UnregPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.UnregCharacterCompleteCast(PostCharacterCompleteCast);
-        UseActionManager.UnregUseAction(PostUseAction);
+        UseActionManager.Unreg(PostUseAction);
         // UseActionManager.UnregUseActionLocation(PostUseActionLocation);
 
         base.Uninit();
