@@ -6,10 +6,11 @@ using DailyRoutines.Abstracts;
 using DailyRoutines.Widgets;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
+using FFXIVClientStructs.FFXIV.Client.Game.Control;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class ActionMessenger : DailyModuleBase
+public unsafe class ActionMessenger : DailyModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
@@ -403,7 +404,7 @@ public class ActionMessenger : DailyModuleBase
         uint actionId,
         nint a4,
         float rotation,
-        float a6) => ProcessAction(true, type, actionId);
+        float a6) => ProcessAction(true, type, actionId, player);
 
     private static void PreCharacterCompleteCast(
         ref bool isPrevented,
@@ -448,7 +449,7 @@ public class ActionMessenger : DailyModuleBase
         Vector3 location,
         uint extraParam) => ProcessAction(result, actionType, actionId);
 
-    private static void ProcessAction(bool result, ActionType actionType, uint actionId)
+    private static void ProcessAction(bool result, ActionType actionType, uint actionId, IBattleChara? player = null)
     {
         if (actionType != ActionType.Action || !result || !ModuleConfig.IsEnabled)
             return;
@@ -459,6 +460,13 @@ public class ActionMessenger : DailyModuleBase
             return;
 
         var random = new Random();
+
+        if (player != null)
+        {
+            var localPlayer = Control.GetLocalPlayer();
+            if (localPlayer == null || player.AccountID != localPlayer->AccountId)
+                return;
+        }
 
         // 查找包含此技能ID的配置
         var matchingMessages = new List<string>();
@@ -514,7 +522,7 @@ public class ActionMessenger : DailyModuleBase
     {
         var lines = message.Split(['\n'], StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
-            ChatHelper.SendMessage(chatType + line);
+            ChatManager.SendMessage(chatType + line);
     }
 
     #region Config
