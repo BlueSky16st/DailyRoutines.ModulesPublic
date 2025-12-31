@@ -15,7 +15,7 @@ public unsafe class FastRetainerStore : DailyModuleBase
         Title       = GetLoc("FastRetainerStoreTitle"),
         Description = GetLoc("FastRetainerStoreDescription"),
         Category    = ModuleCategories.UIOperation,
-        Author      = ["YLChen"]
+        Author      = ["YLCHEN"]
     };
     
     private static readonly HashSet<string> PlayerAddonNames   = ["Inventory", "InventoryLarge", "InventoryExpansion"];
@@ -28,11 +28,8 @@ public unsafe class FastRetainerStore : DailyModuleBase
         DService.ContextMenu.OnMenuOpened += OnContextMenuOpened;
     }
 
-    protected override void Uninit()
-    {
+    protected override void Uninit() => 
         DService.ContextMenu.OnMenuOpened -= OnContextMenuOpened;
-        base.Uninit();
-    }
 
     private void OnContextMenuOpened(IMenuOpenedArgs args)
     {

@@ -81,8 +81,6 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
         ContextTaskHelper?.Abort();
         ContextTaskHelper = null;
         
-        base.Uninit();
-        
         ResetAllExistedData();
     }
 
@@ -161,7 +159,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
         ImGui.TableSetupColumn("位置", ImGuiTableColumnFlags.WidthStretch, 25);
         ImGui.TableSetupColumn("勾选框", ImGuiTableColumnFlags.WidthFixed, ImGui.GetTextLineHeight());
 
-        if (GameState.IsCN)
+        if (GameState.IsCN || GameState.IsTC)
             ImGui.TableSetColumnEnabled(5, false);
         
         ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
@@ -339,7 +337,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
                     EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ExtractText(), "SelectYesno",
                                              () =>
                                              {
-                                                 ContextTaskHelper.Enqueue(() => ClickSelectYesnoYes(), null, null, null, 1);
+                                                 ContextTaskHelper.Enqueue(() => ClickSelectYesnoYes(), weight: 1);
                                                  return true;
                                              });
                 }
@@ -399,16 +397,16 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
         OpenContextMenuByIndex(dataIndex);
         ContextTaskHelper.Enqueue(() =>
         {
-            if (InfosOm.ContextMenu == null || !IsAddonAndNodesReady(InfosOm.ContextMenu)) return false;
+            if (InfosOm.ContextMenuXIV == null || !IsAddonAndNodesReady(InfosOm.ContextMenuXIV)) return false;
             
             if (!ClickContextMenu(menuText))
             {
-                InfosOm.ContextMenu->Close(true);
+                InfosOm.ContextMenuXIV->Close(true);
                 NotificationError(
                     $"{Lang.Get("FCMemberManagePanel-ContextMenuItemNoFound")}: {menuText}");
             }
             return true;
-        }, null, null, null, 2);
+        }, weight: 2);
     }
     
     private static void OpenContextMenuByIndex(int dataIndex) 

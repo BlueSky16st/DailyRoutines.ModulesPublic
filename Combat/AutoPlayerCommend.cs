@@ -3,13 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using DailyRoutines.Abstracts;
 using DailyRoutines.Infos;
+using DailyRoutines.Widgets;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Gui.ContextMenu;
-using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using Lumina.Excel.Sheets;
+using ValueType = FFXIVClientStructs.FFXIV.Component.GUI.ValueType;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -31,15 +33,17 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
     }
     
     private static Config ModuleConfig = null!;
-    
-    private static string ContentSearchInput = string.Empty;
+
+    private static readonly ContentSelectCombo ContentSelectCombo = new("Content");
 
     private static ulong AssignedCommendationContentID;
 
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        TaskHelper ??= new TaskHelper { TimeLimitMS = 10_000 };
+        TaskHelper ??= new() { TimeLimitMS = 10_000 };
+
+        ContentSelectCombo.SelectedContentIDs = ModuleConfig.BlacklistContents;
         
         DService.ClientState.TerritoryChanged += OnZoneChanged;
         DService.ContextMenu.OnMenuOpened     += OnMenuOpen;
@@ -48,21 +52,21 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
 
     protected override void ConfigUI()
     {
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoPlayerCommend-BlacklistContents")}:");
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoPlayerCommend-BlacklistContents")}");
 
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(300f * GlobalFontScale);
-        if (ContentSelectCombo(ref ModuleConfig.BlacklistContentZones, ref ContentSearchInput))
-            SaveConfig(ModuleConfig);
+        using (ImRaii.PushIndent())
+        {
+            ImGui.SetNextItemWidth(300f * GlobalFontScale);
+            if (ContentSelectCombo.DrawCheckbox())
+            {
+                ModuleConfig.BlacklistContents = ContentSelectCombo.SelectedContentIDs.ToHashSet();
+                SaveConfig(ModuleConfig);
+            }
+        }
         
-        ImGui.Spacing();
+        ImGui.NewLine();
         
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("AutoPlayerCommend-BlockBlacklistPlayers")}:");
-        
-        ImGui.SameLine();
-        if (ImGui.Checkbox("###AutoIgnoreBlacklistPlayers", ref ModuleConfig.AutoIgnoreBlacklistPlayers))
+        if (ImGui.Checkbox($"{GetLoc("AutoPlayerCommend-BlockBlacklistPlayers")}", ref ModuleConfig.AutoIgnoreBlacklistPlayers))
             SaveConfig(ModuleConfig);
     }
     
@@ -78,7 +82,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
     private void OnDutyComplete(object? sender, ushort dutyZoneID)
     {
         if (InterruptByConflictKey(TaskHelper, this)) return;
-        if (ModuleConfig.BlacklistContentZones.Contains(dutyZoneID)) return;
+        if (ModuleConfig.BlacklistContents.Contains(GameState.ContentFinderCondition)) return;
         if (DService.PartyList.Length <= 1) return;
 
         var orig = MIPDisplayType;
@@ -94,7 +98,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
         var notificationMvp = GetAddonByName("_NotificationIcMvp");
         if (notification == null && notificationMvp == null) return true;
 
-        if (AssignedCommendationContentID == DService.ClientState.LocalContentId)
+        if (AssignedCommendationContentID == LocalPlayerState.ContentID)
             return true;
 
         Callback(notification, true, 0, 11);
@@ -106,42 +110,46 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
         if (!IsAddonAndNodesReady(VoteMvp)) return false;
         if (!AgentModule.Instance()->GetAgentByInternalId(AgentId.ContentsMvp)->IsAgentActive()) return false;
         
-        if (AssignedCommendationContentID == DService.ClientState.LocalContentId)
+        if (AssignedCommendationContentID == LocalPlayerState.ContentID)
             return true;
 
         var localPlayer = Control.GetLocalPlayer();
         if (localPlayer == null) return false;
         
         var hudMembers = AgentHUD.Instance()->PartyMembers.ToArray();
-        Dictionary<(string Name, uint HomeWorld, uint ClassJob, byte RoleRaw, PlayerRole Role, ulong ContentID), int> partyMembers = [];
+        Dictionary<(string Name, uint HomeWorld, uint ClassJob, uint ClassJobCategory, byte RoleRaw, PlayerRole Role, ulong ContentID), int> partyMembers = [];
         foreach (var member in DService.PartyList)
         {
-            if ((ulong)member.ContentId == DService.ClientState.LocalContentId) continue;
+            if ((ulong)member.ContentId == LocalPlayerState.ContentID) continue;
 
             var index = Math.Clamp(hudMembers.IndexOf(x => x.ContentId == (ulong)member.ContentId) - 1, 0, 6);
             
             var rawRole = member.ClassJob.Value.Role;
-            partyMembers[(member.Name.ExtractText(), member.World.RowId, member.ClassJob.RowId, rawRole, GetCharacterJobRole(rawRole), (ulong)member.ContentId)] =
-                index;
+            partyMembers[(member.Name.ExtractText(), 
+                             member.World.RowId, 
+                             member.ClassJob.RowId, 
+                             member.ClassJob.Value.ClassJobCategory.RowId, 
+                             rawRole,
+                             GetCharacterJobRole(rawRole), 
+                             (ulong)member.ContentId)] = index;
         }
         
         if (partyMembers.Count == 0) return true;
-
-        var blacklistPlayers = GetBlacklistPlayerContentIDs();
         
         // 获取玩家自身职业和职能信息
-        var selfRole = GetCharacterJobRole(LocalPlayerState.ClassJobData.Role);
+        var selfRole     = GetCharacterJobRole(LocalPlayerState.ClassJobData.Role);
         var selfClassJob = LocalPlayerState.ClassJob;
+        var selfCategory = LocalPlayerState.ClassJobData.ClassJobCategory.RowId;
         
         // 统计相同职业的数量
         var jobCounts = partyMembers
-            .GroupBy(x => x.Key.ClassJob)
-            .ToDictionary(g => g.Key, g => g.Count());
+                        .GroupBy(x => x.Key.ClassJob)
+                        .ToDictionary(g => g.Key, g => g.Count());
         
         // 优先级排序
         var playersToCommend = partyMembers
                                .Where(x => !ModuleConfig.AutoIgnoreBlacklistPlayers || 
-                                           !blacklistPlayers.Contains(x.Key.ContentID))
+                                           InfoProxyBlacklist.Instance()->GetBlockResultType(x.Key.ContentID, 0) == InfoProxyBlacklist.BlockResultType.NotBlocked)
                                // 优先已指定、职业相同或职能相同
                                .OrderByDescending(x =>
                                {
@@ -155,8 +163,14 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
                                    // 同类型DPS (近战/远程) 有更高优先级
                                    if (selfRole is PlayerRole.MeleeDPS or PlayerRole.RangedDPS && 
                                        x.Key.Role is PlayerRole.MeleeDPS or PlayerRole.RangedDPS)
-                                       return selfRole == x.Key.Role ? 1 : 0;
-                                   
+                                   {
+                                       return selfRole     == x.Key.Role &&
+                                              selfCategory == x.Key.ClassJobCategory
+                                                  ? 1
+                                                  : 0;
+                                   }
+
+                                   // T / 奶
                                    if (LocalPlayerState.ClassJobData.Role == x.Key.RoleRaw)
                                        return 1;
                                    
@@ -202,7 +216,8 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
                                .Select(x => new
                                {
                                    x.Key.Name,
-                                   x.Key.ClassJob
+                                   x.Key.ClassJob,
+                                   x.Key.HomeWorld
                                })
                                .ToList();
         if (playersToCommend.Count == 0) return true;
@@ -213,7 +228,10 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
             if (!LuminaGetter.TryGetRow<ClassJob>(memberInfo.ClassJob, out var job)) continue;
             
             SendEvent(AgentId.ContentsMvp, 0, 0, playerIndex);
-            Chat(GetSLoc("AutoPlayerCommend-NoticeMessage", job.ToBitmapFontIcon(), job.Name.ExtractText(), memberInfo.Name));
+            Chat(GetSLoc("AutoPlayerCommend-NoticeMessage",
+                         new PlayerPayload(memberInfo.Name, memberInfo.HomeWorld),
+                         job.ToBitmapFontIcon(),
+                         job.Name.ExtractText()));
             return true;
         }
 
@@ -229,10 +247,11 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
             {
                 var isEnabled = VoteMvp->AtkValues[16 + i].UInt == 1;
                 if (!isEnabled) continue;
+
+                var nameValue = VoteMvp->AtkValues[9 + i];
+                if (nameValue.Type != ValueType.String || !nameValue.String.HasValue) continue;
                 
-                var name      = string.Empty;
-                try { name = SeString.Parse(VoteMvp->AtkValues[9 + i].String.Value).ExtractText(); }
-                catch { name = string.Empty; }
+                var name = nameValue.String.ToString();
                 if (string.IsNullOrWhiteSpace(name) || name != playerName) continue;
                 
                 var classJob  = VoteMvp->AtkValues[2 + i].UInt - 62100;
@@ -245,9 +264,6 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
             return false;
         }
     }
-    
-    private static HashSet<ulong> GetBlacklistPlayerContentIDs()
-        => InfoProxyBlacklist.Instance()->BlockedCharacters.ToArray().Select(x => x.Id).ToHashSet() ?? [];
 
     private static PlayerRole GetCharacterJobRole(byte rawRole) =>
         rawRole switch
@@ -266,8 +282,6 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
         DService.DutyState.DutyCompleted  -= OnDutyComplete;
 
         AssignedCommendationContentID = 0;
-        
-        base.Uninit();
     }
 
     private enum PlayerRole
@@ -281,7 +295,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
 
     private class Config : ModuleConfiguration
     {
-        public HashSet<uint> BlacklistContentZones = [];
+        public HashSet<uint> BlacklistContents = [];
 
         public bool AutoIgnoreBlacklistPlayers = true;
     }
@@ -310,7 +324,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
             var playerName  = target.TargetCharacter != null ? target.TargetCharacter.Name : target.TargetName;
             var playerWorld = target.TargetCharacter?.HomeWorld ?? target.TargetHomeWorld;
 
-            NotificationInfo(contentID == DService.ClientState.LocalContentId
+            NotificationInfo(contentID == LocalPlayerState.ContentID
                                  ? GetLoc("AutoPlayerCommend-GiveNobodyCommendMessage")
                                  : GetLoc("AutoPlayerCommend-AssignPlayerCommendMessage", playerName, playerWorld.Value.Name.ExtractText()));
             

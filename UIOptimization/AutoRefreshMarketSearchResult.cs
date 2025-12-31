@@ -15,6 +15,8 @@ public unsafe class AutoRefreshMarketSearchResult : DailyModuleBase
         Category    = ModuleCategories.UIOptimization,
     };
 
+    public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
+    
     private static bool IsMarketStuck { get; set; }
     
     [IPCProvider("DailyRoutines.Modules.AutoRefreshMarketSearchResult.IsMarketStuck")]
@@ -53,10 +55,6 @@ public unsafe class AutoRefreshMarketSearchResult : DailyModuleBase
         return ProcessRequestResultHook.Original(info, entryCount, a3, a4);
     }
 
-    protected override void Uninit()
-    {
+    protected override void Uninit() => 
         WaitMessagePatch.Dispose();
-        
-        base.Uninit();
-    }
 }

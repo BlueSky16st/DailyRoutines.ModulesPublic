@@ -19,6 +19,8 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
         Category    = ModuleCategories.UIOptimization
     };
 
+    public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
+    
     private const string Command = "retrievegears";
 
     private static readonly InventoryType[] ArmoryInventories =
@@ -74,13 +76,13 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
                 {
                     Button = new TextButtonNode
                     {
-                        Size      = new(48),
-                        Position  = new(12, 500),
-                        IsVisible = true,
-                        SeString  = new SeStringBuilder().AddIcon(BitmapFontIcon.SwordSheathed).Build(),
-                        Tooltip   = GetLoc("AutoMoveGearsNotInSet-Button"),
-                        OnClick   = () => ChatHelper.SendMessage($"/pdr {Command}"),
-                        IsEnabled = true,
+                        Size        = new(48),
+                        Position    = new(12, 500),
+                        IsVisible   = true,
+                        SeString    = new SeStringBuilder().AddIcon(BitmapFontIcon.SwordSheathed).Build().Encode(),
+                        TextTooltip = GetLoc("AutoMoveGearsNotInSet-Button"),
+                        OnClick     = () => ChatManager.SendMessage($"/pdr {Command}"),
+                        IsEnabled   = true,
                     };
 
                     var backgroundNode = (SimpleNineGridNode)Button.BackgroundNode;
@@ -91,11 +93,11 @@ public class AutoMoveGearsNotInSet : DailyModuleBase
                     backgroundNode.LeftOffset         = 0;
                     backgroundNode.RightOffset        = 0f;
                     
-                    Service.AddonController.AttachNode(Button, ArmouryBoard->RootNode);
+                    Button.AttachNode(ArmouryBoard->RootNode);
                 }
                 break;
             case AddonEvent.PreFinalize:
-                Service.AddonController.DetachNode(Button);
+                Button?.DetachNode();
                 Button = null;
                 break;
         }

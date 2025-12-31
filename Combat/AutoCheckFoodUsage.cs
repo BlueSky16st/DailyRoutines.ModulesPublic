@@ -4,6 +4,7 @@ using System.Linq;
 using System.Numerics;
 using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
+using DailyRoutines.Widgets;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Hooking;
@@ -22,12 +23,16 @@ public class AutoCheckFoodUsage : DailyModuleBase
         Category    = ModuleCategories.Combat,
     };
 
+    private const int FOOD_USAGE_COOLDOWN_SECONDS = 10;
+
     private static readonly CompSig                      CountdownInitSig = new("48 89 5C 24 10 57 48 83 EC 40 48 8B DA 48 8B F9 48 8B 49 08");
     public delegate         nint                         CountdownInitDelegate(nint a1, nint a2);
     private static          Hook<CountdownInitDelegate>? CountdownInitHook;
 
     private static Config ModuleConfig = null!;
 
+    private static readonly JobSelectCombo JobSelectCombo = new("Job");
+    
     private static uint   SelectedItem;
     private static string SelectItemSearch = string.Empty;
     private static bool   SelectItemIsHQ   = true;
@@ -37,7 +42,6 @@ public class AutoCheckFoodUsage : DailyModuleBase
     private static Vector2 CheckboxSize = ScaledVector2(20f);
     
     private static readonly DateTime LastFoodUsageTime        = DateTime.MinValue;
-    private const           int      FoodUsageCooldownSeconds = 10;
 
     protected override void Init()
     {
@@ -164,7 +168,7 @@ public class AutoCheckFoodUsage : DailyModuleBase
             ImGui.Dummy(Vector2.One);
 
             ImGui.SetNextItemWidth(50f * GlobalFontScale);
-            ImGui.InputInt(GetLoc("AutoCheckFoodUsage-RefreshThreshold"), ref ModuleConfig.RefreshThreshold, 0, 0);
+            ImGui.InputInt(GetLoc("AutoCheckFoodUsage-RefreshThreshold"), ref ModuleConfig.RefreshThreshold);
             if (ImGui.IsItemDeactivatedAfterEdit())
                 SaveConfig(ModuleConfig);
 
@@ -201,7 +205,10 @@ public class AutoCheckFoodUsage : DailyModuleBase
 
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(200f * GlobalFontScale);
-                    SingleSelectCombo(PresetSheet.Food, ref SelectedItem, ref SelectItemSearch,
+                    SingleSelectCombo("FoodSelectCombo",
+                                      PresetSheet.Food,
+                                      ref SelectedItem,
+                                      ref SelectItemSearch,
                                       x => $"{x.Name.ExtractText()} ({x.RowId})",
                                       [new("物品", ImGuiTableColumnFlags.WidthStretch, 0)],
                                       [
@@ -214,7 +221,9 @@ public class AutoCheckFoodUsage : DailyModuleBase
                                                                                   ImGuiSelectableFlags.DontClosePopups))
                                                   SelectedItem = SelectedItem == x.RowId ? 0 : x.RowId;
                                           }
-                                      ], [x => x.Name.ExtractText(), x => x.RowId.ToString()], true);
+                                      ],
+                                      [x => x.Name.ExtractText(), x => x.RowId.ToString()],
+                                      true);
 
                     ImGui.SameLine();
                     ImGui.Checkbox("HQ", ref SelectItemIsHQ);
@@ -302,7 +311,8 @@ public class AutoCheckFoodUsage : DailyModuleBase
             ImGui.SetNextItemWidth(-1f);
             using (ImRaii.PushId("ZonesSelectCombo"))
             {
-                if (MultiSelectCombo(PresetSheet.Zones, ref zones, ref ZoneSearch,
+                if (MultiSelectCombo("ZoneSelectCombo",
+                                     PresetSheet.Zones, ref zones, ref ZoneSearch,
                                      [
                                          new("区域", ImGuiTableColumnFlags.WidthStretch, 0),
                                          new("副本", ImGuiTableColumnFlags.WidthStretch, 0)
@@ -341,11 +351,11 @@ public class AutoCheckFoodUsage : DailyModuleBase
             }
 
             ImGui.TableNextColumn();
-            var jobs = preset.ClassJobs;
             ImGui.SetNextItemWidth(-1f);
-            if (JobSelectCombo(ref jobs, ref ZoneSearch))
+            JobSelectCombo.SelectedJobIDs = preset.ClassJobs.ToHashSet();
+            if (JobSelectCombo.DrawCheckbox())
             {
-                preset.ClassJobs = jobs;
+                preset.ClassJobs = JobSelectCombo.SelectedJobIDs.ToHashSet();
                 SaveConfig(ModuleConfig);
             }
         }
@@ -478,7 +488,6 @@ public class AutoCheckFoodUsage : DailyModuleBase
     {
         DService.Condition.ConditionChange -= OnConditionChanged;
         DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        base.Uninit();
     }
     
     private static unsafe bool IsValidState() =>
@@ -490,10 +499,10 @@ public class AutoCheckFoodUsage : DailyModuleBase
         ActionManager.Instance()->GetActionStatus(ActionType.GeneralAction, 2) == 0;
     
     private static bool IsCooldownElapsed() => 
-        (DateTime.Now - LastFoodUsageTime).TotalSeconds >= FoodUsageCooldownSeconds;
+        (DateTime.Now - LastFoodUsageTime).TotalSeconds >= FOOD_USAGE_COOLDOWN_SECONDS;
     
     private static uint ToFoodRowID(uint id) => 
-        LuminaGetter.GetRow<ItemFood>(LuminaGetter.GetRow<Item>(id)!.Value.ItemAction.Value.Data[1])?.RowId ?? 0;
+        LuminaGetter.GetRow<ItemFood>(LuminaGetter.GetRowOrDefault<Item>(id).ItemAction.Value.Data[1])?.RowId ?? 0;
 
     private static unsafe List<FoodUsagePreset> GetValidPresets()
     {

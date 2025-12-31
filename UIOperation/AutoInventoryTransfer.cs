@@ -35,7 +35,7 @@ public unsafe class AutoInventoryTransfer : DailyModuleBase
     {
         if (!IsConflictKeyPressed() || !IsInventoryOpen()) return;
         
-        TaskHelper.Enqueue(() => IsAddonAndNodesReady(ContextMenu));
+        TaskHelper.Enqueue(() => IsAddonAndNodesReady(ContextMenuXIV));
         TaskHelper.Enqueue(() => { ClickContextMenu(MenuTexts); });
         
         return;
@@ -48,10 +48,6 @@ public unsafe class AutoInventoryTransfer : DailyModuleBase
                IsAddonAndNodesReady(InventoryRetainerLarge);
     }
 
-    protected override void Uninit()
-    {
+    protected override void Uninit() => 
         DService.ContextMenu.OnMenuOpened -= OnContextMenuOpened;
-        
-        base.Uninit();
-    }
 }

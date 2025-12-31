@@ -77,13 +77,9 @@ public class AutoSortItems : DailyModuleBase
         DrawTableRow("背包分栏", GetLoc("AutoSortItems-Splited"), ref ModuleConfig.InventoryTab, tabOptions, GetLoc("AutoSortItems-InventoryTabDesc"));
     }
 
-    protected override void Uninit()
-    {
+    protected override void Uninit() => 
         DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        TaskHelper?.Abort();
-        base.Uninit();
-    }
-    
+
     private void DrawTableRow(string id, string label, ref int value, string[] options, string note = "")
     {
         using var idPush = ImRaii.PushId($"{label}_{id}");
@@ -148,7 +144,7 @@ public class AutoSortItems : DailyModuleBase
         SendSortCondition("armourychest", "id", ModuleConfig.ArmouryChestID);
         SendSortCondition("armourychest", "itemlevel", ModuleConfig.ArmouryItemLevel);
         SendSortCondition("armourychest", "category", ModuleConfig.ArmouryCategory);
-        ChatHelper.SendMessage("/itemsort execute armourychest");
+        ChatManager.SendMessage("/itemsort execute armourychest");
 
         SendSortCondition("inventory", "hq", ModuleConfig.InventoryHQ);
         SendSortCondition("inventory", "id", ModuleConfig.InventoryID);
@@ -156,9 +152,9 @@ public class AutoSortItems : DailyModuleBase
         SendSortCondition("inventory", "category", ModuleConfig.InventoryCategory);
 
         if (ModuleConfig.InventoryTab == 0)
-            ChatHelper.SendMessage("/itemsort condition inventory tab");
+            ChatManager.SendMessage("/itemsort condition inventory tab");
 
-        ChatHelper.SendMessage("/itemsort execute inventory");
+        ChatManager.SendMessage("/itemsort execute inventory");
 
         if (ModuleConfig.SendNotification)
             NotificationInfo(GetLoc("AutoSortItems-SortMessage"));
@@ -168,7 +164,7 @@ public class AutoSortItems : DailyModuleBase
         return true;
 
         void SendSortCondition(string target, string condition, int setting)
-            => ChatHelper.SendMessage($"/itemsort condition {target} {condition} {sortOptionsCommand[setting]}");
+            => ChatManager.SendMessage($"/itemsort condition {target} {condition} {sortOptionsCommand[setting]}");
     }
 
     public class Config : ModuleConfiguration

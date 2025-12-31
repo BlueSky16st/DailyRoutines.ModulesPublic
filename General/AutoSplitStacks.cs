@@ -51,12 +51,12 @@ public unsafe class AutoSplitStacks : DailyModuleBase
                                                     !string.IsNullOrEmpty(x.Name.ExtractText()))
                                         .GroupBy(x => x.Name.ExtractText())
                                         .Select(x => x.First()),
-                             [x => x.Name.ExtractText(), x => x.RowId.ToString()], x => x.Name.ExtractText());
+                             [x => x.Name.ExtractText(), x => x.RowId.ToString()]);
 
         CommandManager.AddCommand(Command, new(OnCommand) { HelpMessage = GetLoc("AutoSplitStacks-CommandHelp") });
         DService.ContextMenu.OnMenuOpened += OnMenuOpened;
 
-        DService.UIBuilder.Draw += OnDraw;
+        WindowManager.Draw += OnDraw;
     }
 
     private void OnDraw()
@@ -360,7 +360,7 @@ public unsafe class AutoSplitStacks : DailyModuleBase
         {
             ClickContextMenu(LuminaGetter.GetRow<Addon>(92)!.Value.Text.ExtractText());
             return true;
-        }, null, null, null, 2);
+        }, weight: 2);
 
         TaskHelper.DelayNext(20, $"InputNumeric_{itemID}_{foundType}_{foundSlot}", false, 2);
         TaskHelper.Enqueue(() =>
@@ -369,20 +369,18 @@ public unsafe class AutoSplitStacks : DailyModuleBase
 
             Callback(InputNumeric, true, amount);
             return true;
-        }, null, null, null, 2);
+        }, weight: 2);
     }
 
     protected override void Uninit()
     {
-        DService.UIBuilder.Draw -= OnDraw;
+        WindowManager.Draw -= OnDraw;
         
         CommandManager.RemoveCommand(Command);
         DService.ContextMenu.OnMenuOpened -= OnMenuOpened;
 
         FastSplitItemID = 0;
         IsNeedToOpen    = false;
-
-        base.Uninit();
     }
 
     private class Config : ModuleConfiguration

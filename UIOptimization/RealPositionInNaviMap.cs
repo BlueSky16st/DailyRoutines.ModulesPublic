@@ -50,7 +50,7 @@ public class RealPositionInNaviMap : DailyModuleBase
         switch (type)
         {
             case AddonEvent.PreFinalize:
-                Service.AddonController.DetachNode(PositionButton);
+                PositionButton?.DetachNode();
                 PositionButton = null;
                 break;
             case AddonEvent.PostDraw:
@@ -58,19 +58,22 @@ public class RealPositionInNaviMap : DailyModuleBase
 
                 if (PositionButton == null)
                 {
+                    var origTextNode = NaviMap->GetTextNodeById(6);
+                    if (origTextNode == null) return;
+                    
                     PositionButton = new()
                     {
                         Position  = new(0),
                         Size      = new(130, 18),
                         IsVisible = true,
                         SeString  = string.Empty,
-                        OnClick   = () =>
+                        OnClick = () =>
                         {
                             if (DService.ObjectTable.LocalPlayer is not { } player) return;
 
                             var agent = AgentMap.Instance();
                             agent->SetFlagMapMarker(GameState.TerritoryType, GameState.Map, player.Position);
-                            
+
                             var result = string.Format(ModuleConfig.CopyFormat,
                                                        player.Position.X,
                                                        player.Position.Y,
@@ -83,20 +86,25 @@ public class RealPositionInNaviMap : DailyModuleBase
                         }
                     };
 
-                    PositionButton.BackgroundNode.IsVisible = false;
-                    
-                    PositionButton.LabelNode.TextFlags        = TextFlags.Glare;
-                    PositionButton.LabelNode.TextColor        = ColorHelper.GetColor(8);
-                    PositionButton.LabelNode.TextOutlineColor = new(0, 0, 0, 1);
-                    
-                    Service.AddonController.AttachNode(PositionButton, NaviMap->GetNodeById(5));
+                    if (DService.ObjectTable.LocalPlayer is { } localPlayer)
+                        PositionButton.String = $"X:{localPlayer.Position.X:F1} Y:{localPlayer.Position.Y:F1} Z:{localPlayer.Position.Z:F1}";
 
-                    NaviMap->GetTextNodeById(6)->ToggleVisibility(false);
+                    PositionButton.BackgroundNode.IsVisible = false;
+
+                    PositionButton.LabelNode.TextFlags        = TextFlags.Glare;
+                    PositionButton.LabelNode.TextColor        = origTextNode->Color.ToVector4();
+                    PositionButton.LabelNode.TextOutlineColor = origTextNode->EdgeColor.ToVector4();
+
+                    PositionButton.AttachNode(NaviMap->GetNodeById(5));
+
+                    origTextNode->ToggleVisibility(false);
                 }
 
+            {
                 if (LocalPlayerState.IsMoving && DService.ObjectTable.LocalPlayer is { } localPlayer)
-                    PositionButton.SeString = $"X:{localPlayer.Position.X:F1} Y:{localPlayer.Position.Y:F1} Z:{localPlayer.Position.Z:F1}";
-                
+                    PositionButton.String = $"X:{localPlayer.Position.X:F1} Y:{localPlayer.Position.Y:F1} Z:{localPlayer.Position.Z:F1}";
+            }
+
                 break;
         }
     }

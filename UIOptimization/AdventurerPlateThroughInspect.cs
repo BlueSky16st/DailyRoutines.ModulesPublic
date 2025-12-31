@@ -1,5 +1,4 @@
 ﻿using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -16,6 +15,8 @@ public unsafe class AdventurerPlateThroughInspect : DailyModuleBase
         Category    = ModuleCategories.UIOptimization
     };
 
+    public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
+    
     private static IconButtonNode? OpenButton;
 
     protected override void Init()
@@ -37,20 +38,20 @@ public unsafe class AdventurerPlateThroughInspect : DailyModuleBase
                 {
                     OpenButton = new()
                     {
-                        Size      = new(36f),
-                        IsVisible = true,
-                        IsEnabled = true,
-                        IconId    = 66469,
-                        OnClick   = () => new CharaCardOpenPacket(AgentInspect.Instance()->CurrentEntityId).Send(),
-                        Tooltip   = LuminaWrapper.GetAddonText(15083),
-                        Position  = new(298, 86)
+                        Size        = new(36f),
+                        IsVisible   = true,
+                        IsEnabled   = true,
+                        IconId      = 66469,
+                        OnClick     = () => new CharaCardOpenPacket(AgentInspect.Instance()->CurrentEntityId).Send(),
+                        TextTooltip = LuminaWrapper.GetAddonText(15083),
+                        Position    = new(298, 86)
                     };
-                    Service.AddonController.AttachNode(OpenButton, CharacterInspect->RootNode);
+                    OpenButton.AttachNode(CharacterInspect->RootNode);
                 }
                 
                 break;
             case AddonEvent.PreFinalize:
-                Service.AddonController.DetachNode(OpenButton);
+                OpenButton?.DetachNode();
                 OpenButton = null;
                 break;
         }
