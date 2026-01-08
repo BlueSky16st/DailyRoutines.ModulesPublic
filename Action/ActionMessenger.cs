@@ -41,21 +41,26 @@ public unsafe class ActionMessenger : DailyModuleBase
                                                                                          && p.IsPlayerAction
                                                                                          && p.IsPvP == false));
 
-        UseActionManager.RegCharacterStartCast(PostCharacterStartCast);
+        // UseActionManager.Instance().RegCharacterStartCast(PostCharacterStartCast);
         // UseActionManager.RegPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.RegCharacterCompleteCast(PostCharacterCompleteCast);
-        UseActionManager.RegUseAction(PostUseAction);
+        // UseActionManager.RegUseAction(PostUseAction);
         // UseActionManager.RegUseActionLocation(PostUseActionLocation);
+        UseActionManager.Instance().RegPreCharacterStartCast(PostCharacterStartCastV2);
+        UseActionManager.Instance().RegPostUseAction(PostUseAction);
     }
 
     protected override void Uninit()
     {
-        UseActionManager.Unreg(PostCharacterStartCast);
+        // UseActionManager.Unreg(PostCharacterStartCast);
         // UseActionManager.UnregPreCharacterCompleteCast(PreCharacterCompleteCast);
         // UseActionManager.UnregCharacterCompleteCast(PostCharacterCompleteCast);
-        UseActionManager.Unreg(PostUseAction);
+        // UseActionManager.Unreg(PostUseAction);
         // UseActionManager.UnregUseActionLocation(PostUseActionLocation);
 
+        UseActionManager.Instance().Unreg(PostCharacterStartCastV2);
+        UseActionManager.Instance().Unreg(PostUseAction);
+        
         base.Uninit();
     }
 
@@ -406,6 +411,15 @@ public unsafe class ActionMessenger : DailyModuleBase
         float rotation,
         float a6) => ProcessAction(true, type, actionId, player);
 
+    public static void PostCharacterStartCastV2(
+        ref bool isPrevented, 
+        ref IBattleChara player, 
+        ref ActionType type, 
+        ref uint actionID, 
+        ref nint a4, 
+        ref float rotation, 
+        ref float a6) => ProcessAction(true, type, actionID, player);
+
     private static void PreCharacterCompleteCast(
         ref bool isPrevented,
         ref IBattleChara player,
@@ -522,7 +536,7 @@ public unsafe class ActionMessenger : DailyModuleBase
     {
         var lines = message.Split(['\n'], StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
-            ChatManager.SendMessage(chatType + line);
+            ChatManager.Instance().SendMessage(chatType + line);
     }
 
     #region Config

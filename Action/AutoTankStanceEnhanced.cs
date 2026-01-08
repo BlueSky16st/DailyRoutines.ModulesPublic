@@ -34,18 +34,18 @@ public class AutoTankStanceEnhanced : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new TaskHelper { TimeLimitMS = 30_000 };
+        TaskHelper ??= new TaskHelper { TimeoutMS = 30_000 };
 
-        DService.ClientState.ClassJobChanged += OnClassJobChanged;
-        DService.ClientState.LevelChanged += LevelChange;
-        DService.DutyState.DutyRecommenced += OnDutyRecommenced;
+        DService.Instance().ClientState.ClassJobChanged += OnClassJobChanged;
+        DService.Instance().ClientState.LevelChanged += LevelChange;
+        DService.Instance().DutyState.DutyRecommenced += OnDutyRecommenced;
     }
 
     protected override void Uninit()
     {
-        DService.ClientState.ClassJobChanged -= OnClassJobChanged;
-        DService.ClientState.LevelChanged -= LevelChange;
-        DService.DutyState.DutyRecommenced -= OnDutyRecommenced;
+        DService.Instance().ClientState.ClassJobChanged -= OnClassJobChanged;
+        DService.Instance().ClientState.LevelChanged -= LevelChange;
+        DService.Instance().DutyState.DutyRecommenced -= OnDutyRecommenced;
 
         base.Uninit();
     }
@@ -73,13 +73,13 @@ public class AutoTankStanceEnhanced : DailyModuleBase
         // if (BetweenAreas || OccupiedInEvent || !IsScreenReady()) return false;
         // if (OccupiedInEvent || !IsScreenReady()) return false;
 
-        if (DService.ObjectTable.LocalPlayer is not { ClassJob.RowId: var job, IsTargetable: true } || job == 0)
+        if (DService.Instance().ObjectTable.LocalPlayer is not { ClassJob.RowId: var job, IsTargetable: true } || job == 0)
             return false;
 
         if (!TankStanceActions.TryGetValue(job, out var info)) return true;
 
         if (LocalPlayerState.HasStatus(info.Status, out _)) return true;
 
-        return UseActionManager.UseAction(ActionType.Action, info.Action);
+        return UseActionManager.Instance().UseAction(ActionType.Action, info.Action);
     }
 }
