@@ -38,7 +38,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
                                               .Where(x => x.Item.RowId != 0 && x.Item.IsValid)
                                               .ToDictionary(x => x.RowId, x => x);
         ItemNameMap = OriginalCraftItemsSheet.Values
-                                             .ToDictionary(r => RemoveMJIItemPrefix(r.Item.Value.Name.ExtractText() ?? string.Empty), 
+                                             .ToDictionary(r => RemoveMJIItemPrefix(r.Item.Value.Name.ToString() ?? string.Empty), 
                                                            r => r,
                                                            StringComparer.OrdinalIgnoreCase);
     }
@@ -54,8 +54,8 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         Overlay.WindowName =   "自动无人岛工房生产计划";
         Overlay.SizeConstraints = new() { MinimumSize = new(400f * GlobalFontScale, 300f * GlobalFontScale) };
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "MJICraftSchedule", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "MJICraftSchedule", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "MJICraftSchedule", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "MJICraftSchedule", OnAddon);
         if (MJICraftSchedule != null) 
             OnAddon(AddonEvent.PostSetup, null);
     }
@@ -68,9 +68,9 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             return;
         }
         
-        if (!IsAddonAndNodesReady(MJICraftSchedule)) return;
+        if (!MJICraftSchedule->IsAddonAndNodesReady()) return;
         
-        using var font = FontManager.UIFont80.Push();
+        using var font = FontManager.Instance().UIFont80.Push();
         
         DrawImportSection();
         
@@ -86,7 +86,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), "导入数据");
         
         ImGui.SameLine();
-        ImGui.Text("(");
+        ImGui.TextUnformatted("(");
         
         ImGui.SameLine();
         if (ImGui.SmallButton("常规作业集 (蜡笔桶)"))
@@ -97,7 +97,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             Util.OpenLink("https://docs.qq.com/sheet/DVmxFek1pUUtmYVhl");
         
         ImGui.SameLine();
-        ImGui.Text(")");
+        ImGui.TextUnformatted(")");
         
         ImGui.Spacing();
 
@@ -151,7 +151,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         foreach (var (cycle, rec) in Recommendations.Enumerate())
         {
             ImGui.AlignTextToFramePadding();
-            ImGui.Text($"第 {cycle} 天:");
+            ImGui.TextUnformatted($"第 {cycle} 天:");
             
             ImGui.SameLine();
             if (ImGui.SmallButton($"{GetLoc("Apply")}##{cycle}"))
@@ -218,14 +218,14 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         var iconSize = ImGui.GetTextLineHeight() * 1.5f;
         var iconSizeVec = new Vector2(iconSize, iconSize);
         var craftworkItemIcon = row.Item.Value.Icon;
-        ImGui.Image(DService.Texture.GetFromGameIcon(new(craftworkItemIcon)).GetWrapOrEmpty().Handle,
+        ImGui.Image(DService.Instance().Texture.GetFromGameIcon(new(craftworkItemIcon)).GetWrapOrEmpty().Handle,
             iconSizeVec, Vector2.Zero, Vector2.One);
     }
 
     private static void DrawItemName(uint craftObjectID)
     {
         if (!OriginalCraftItemsSheet.TryGetValue(craftObjectID, out var row)) return;
-        ImGui.TextUnformatted(row.Item.Value.Name.ExtractText());
+        ImGui.TextUnformatted(row.Item.Value.Name.ToString());
     }
 
     private static string RemoveMJIItemPrefix(string name) =>
@@ -317,7 +317,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
     {
         var agent = AgentMJICraftSchedule.Instance();
         agent->Data->NewRestCycles = mask;
-        SendEvent(&agent->AgentInterface, 5, 0);
+        agent->AgentInterface.SendEvent(5, 0);
     }
 
     public static void ResetCurrentCycleToRefreshUI()
@@ -336,7 +336,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         };
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
     private class Config : ModuleConfiguration
     {

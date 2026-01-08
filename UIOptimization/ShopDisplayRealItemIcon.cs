@@ -27,40 +27,40 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
 
     protected override void Init()
     {
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Shop", OnShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "Shop", OnShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "Shop", OnShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Shop", OnShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "Shop", OnShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "Shop", OnShop);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "InclusionShop", OnInclusionShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "InclusionShop", OnInclusionShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "InclusionShop", OnInclusionShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "InclusionShop", OnInclusionShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "InclusionShop", OnInclusionShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "InclusionShop", OnInclusionShop);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "GrandCompanyExchange", OnGrandCompanyExchange);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "GrandCompanyExchange", OnGrandCompanyExchange);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "GrandCompanyExchange", OnGrandCompanyExchange);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "GrandCompanyExchange", OnGrandCompanyExchange);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "GrandCompanyExchange", OnGrandCompanyExchange);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "GrandCompanyExchange", OnGrandCompanyExchange);
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,
                                                  ["ShopExchangeCurrency", "ShopExchangeItem", "ShopExchangeCoin"],
                                                  OnShopExchange);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh,
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh,
                                                  ["ShopExchangeCurrency", "ShopExchangeItem", "ShopExchangeCoin"],
                                                  OnShopExchange);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,
                                                  ["ShopExchangeCurrency", "ShopExchangeItem", "ShopExchangeCoin"],
                                                  OnShopExchange);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "CollectablesShop", OnCollectablesShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "CollectablesShop", OnCollectablesShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "CollectablesShop", OnCollectablesShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "CollectablesShop", OnCollectablesShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "CollectablesShop", OnCollectablesShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "CollectablesShop", OnCollectablesShop);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "FreeShop", OnFreeShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "FreeShop", OnFreeShop);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "FreeShop", OnFreeShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "FreeShop", OnFreeShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRefresh,  "FreeShop", OnFreeShop);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "FreeShop", OnFreeShop);
     }
     
     private static void OnFreeShop(AddonEvent type, AddonArgs args)
     {
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
         
         var itemCount = addon->AtkValues[3].UInt;
@@ -81,7 +81,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
         if (type == AddonEvent.PostDraw &&
             !Throttler.Throttle("ShopDisplayRealItemIcon-OnCollectablesShop", 100)) return;
         
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
 
         if (type == AddonEvent.PostRefresh)
@@ -97,7 +97,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
                 if (itemID == 0) continue;
                 if (!LuminaGetter.TryGetRow<Item>(itemID, out var itemRow)) continue;
                 
-                itemDatas.Add(new(itemID, itemRow.Icon, itemRow.Name.ExtractText()));
+                itemDatas.Add(new(itemID, itemRow.Icon, itemRow.Name.ToString()));
             }
             
             CollectablesShopItemDatas = itemDatas;
@@ -116,7 +116,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
             var nameNode = (AtkTextNode*)listItemComponent->Component->UldManager.SearchNodeById(4);
             if (nameNode == null) return;
             
-            var name = SanitizeSeIcon(SeString.Parse(nameNode->NodeText).TextValue);
+            var name = nameNode->NodeText.ToString().SanitizeSEIcon();
             var data = CollectablesShopItemDatas.FirstOrDefault(
                 x => x.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
             if (data == default) continue;
@@ -130,7 +130,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
     
     private static void OnShopExchange(AddonEvent type, AddonArgs args)
     {
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
         
         var itemCount = addon->AtkValues[4].UInt;
@@ -147,7 +147,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
     
     private static void OnGrandCompanyExchange(AddonEvent type, AddonArgs args)
     {
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
         
         var itemCount = addon->AtkValues[1].UInt;
@@ -165,7 +165,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
     
     private static void OnInclusionShop(AddonEvent type, AddonArgs args)
     {
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
         
         var itemCount = addon->AtkValues[298].UInt;
@@ -183,7 +183,7 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
 
     private static void OnShop(AddonEvent type, AddonArgs args)
     {
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
 
         // 0 - 出售; 1 - 回购
@@ -217,11 +217,11 @@ public unsafe class ShopDisplayRealItemIcon : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnShop);
-        DService.AddonLifecycle.UnregisterListener(OnInclusionShop);
-        DService.AddonLifecycle.UnregisterListener(OnGrandCompanyExchange);
-        DService.AddonLifecycle.UnregisterListener(OnShopExchange);
-        DService.AddonLifecycle.UnregisterListener(OnCollectablesShop);
-        DService.AddonLifecycle.UnregisterListener(OnFreeShop);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnShop);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnInclusionShop);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnGrandCompanyExchange);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnShopExchange);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnCollectablesShop);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnFreeShop);
     }
 }

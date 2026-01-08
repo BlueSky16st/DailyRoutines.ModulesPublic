@@ -15,11 +15,11 @@ public class AutoQuestComplete : DailyModuleBase
 
     protected override void Init()
     {
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "JournalResult", OnAddonJournalResultSetup);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,  "JournalResult", OnAddonJournalResultSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "JournalResult", OnAddonJournalResultSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,  "JournalResult", OnAddonJournalResultSetup);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SatisfactionSupplyResult", OnAddonSatisfactionSupplyResultSetup);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,  "SatisfactionSupplyResult", OnAddonSatisfactionSupplyResultSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SatisfactionSupplyResult", OnAddonSatisfactionSupplyResultSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,  "SatisfactionSupplyResult", OnAddonSatisfactionSupplyResultSetup);
     }
     
     private static unsafe void OnAddonJournalResultSetup(AddonEvent type, AddonArgs args)
@@ -30,11 +30,11 @@ public class AutoQuestComplete : DailyModuleBase
         var itemID = addon->AtkValues[82].UInt;
         if (itemID == 0)
         {
-            Callback(addon, true, 0, 0);
+            addon->Callback(0, 0);
             return;
         }
         
-        Callback(addon, true, 0, itemID);
+        addon->Callback(0, itemID);
     }
     
     private static unsafe void OnAddonSatisfactionSupplyResultSetup(AddonEvent type, AddonArgs args)
@@ -42,12 +42,12 @@ public class AutoQuestComplete : DailyModuleBase
         var addon = SatisfactionSupplyResult;
         if (addon == null) return;
 
-        Callback(addon, true, 1);
+        addon->Callback(1);
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonSatisfactionSupplyResultSetup);
-        DService.AddonLifecycle.UnregisterListener(OnAddonJournalResultSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSatisfactionSupplyResultSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonJournalResultSetup);
     }
 }

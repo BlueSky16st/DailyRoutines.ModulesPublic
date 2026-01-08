@@ -3,7 +3,9 @@ using DailyRoutines.Managers;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using Lumina.Excel.Sheets;
+using OmenTools.Extensions;
 using TerritoryIntendedUse = FFXIVClientStructs.FFXIV.Client.Enums.TerritoryIntendedUse;
 
 namespace DailyRoutines.ModulesPublic;
@@ -25,17 +27,17 @@ public unsafe class AutoStellarSprint : DailyModuleBase
     {
         TaskHelper ??= new();
 
-        DService.ClientState.TerritoryChanged += OnTerritoryChange;
-        OnTerritoryChange(DService.ClientState.TerritoryType);
+        DService.Instance().ClientState.TerritoryChanged += OnTerritoryChange;
+        OnTerritoryChange(0);
     }
 
     private void OnTerritoryChange(ushort zone)
     {
         TaskHelper.Abort();
-        FrameworkManager.Unreg(OnFrameworkUpdate);
+        FrameworkManager.Instance().Unreg(OnFrameworkUpdate);
 
         if (GameState.TerritoryIntendedUse != TerritoryIntendedUse.CosmicExploration) return;
-        FrameworkManager.Reg(OnFrameworkUpdate, throttleMS: 2_000);
+        FrameworkManager.Instance().Reg(OnFrameworkUpdate, throttleMS: 2_000);
     }
 
     private void OnFrameworkUpdate(IFramework _)
@@ -44,13 +46,13 @@ public unsafe class AutoStellarSprint : DailyModuleBase
         TaskHelper.Enqueue(UseSprint);
     }
 
-    private bool? UseSprint()
+    private bool UseSprint()
     {
-        if (!IsScreenReady() || BetweenAreas || OccupiedInEvent) return false;
+        if (!UIModule.IsScreenReady() || BetweenAreas || OccupiedInEvent) return false;
 
         if (GameState.TerritoryIntendedUse != TerritoryIntendedUse.CosmicExploration)
         {
-            FrameworkManager.Unreg(OnFrameworkUpdate);
+            FrameworkManager.Instance().Unreg(OnFrameworkUpdate);
             return true;
         }
         
@@ -61,12 +63,12 @@ public unsafe class AutoStellarSprint : DailyModuleBase
         var jobCategory = LuminaGetter.GetRow<ClassJob>(localPlayer->ClassJob)?.ClassJobCategory.RowId;
         if (jobCategory is not (32 or 33)) return true;
         
-        return UseActionManager.UseActionLocation(ActionType.Action, StellarSprint);
+        return UseActionManager.Instance().UseActionLocation(ActionType.Action, StellarSprint);
     }
 
     protected override void Uninit()
     {
-        FrameworkManager.Unreg(OnFrameworkUpdate);
-        DService.ClientState.TerritoryChanged -= OnTerritoryChange;
+        FrameworkManager.Instance().Unreg(OnFrameworkUpdate);
+        DService.Instance().ClientState.TerritoryChanged -= OnTerritoryChange;
     }
 }

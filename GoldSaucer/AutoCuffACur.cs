@@ -21,7 +21,7 @@ public class AutoCuffACur : DailyModuleBase
     {
         TaskHelper ??= new();
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "PunchingMachine", OnAddonSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "PunchingMachine", OnAddonSetup);
     }
 
     protected override void ConfigUI()
@@ -71,10 +71,10 @@ public class AutoCuffACur : DailyModuleBase
         TaskHelper.Enqueue(EnqueueNewRound);
     }
 
-    private static unsafe bool? WaitSelectStringAddon() =>
-        IsAddonAndNodesReady(SelectString) && IsAddonAndNodesReady(PunchingMachine);
+    private static unsafe bool WaitSelectStringAddon() =>
+        SelectString->IsAddonAndNodesReady() && PunchingMachine->IsAddonAndNodesReady();
 
-    private bool? EnqueueNewRound()
+    private bool EnqueueNewRound()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
         if (OccupiedInEvent) return false;
@@ -85,7 +85,7 @@ public class AutoCuffACur : DailyModuleBase
     
     private static unsafe void UpdateSelectStringInfo(string info)
     {
-        if (!IsAddonAndNodesReady(SelectString) || !IsAddonAndNodesReady(PunchingMachine)) return;
+        if (!SelectString->IsAddonAndNodesReady() || !PunchingMachine->IsAddonAndNodesReady()) return;
 
         var list = SelectString->GetComponentListById(3);
         var text = SelectString->GetTextNodeById(2);
@@ -104,15 +104,15 @@ public class AutoCuffACur : DailyModuleBase
         builder.Add(NewLinePayload.Payload);
         builder.AddText(info);
         
-        text->SetText(builder.Encode());
+        text->SetText(builder.Build().EncodeWithNullTerminator());
         text->SetPositionFloat(20, 60);
     }
 
     protected override unsafe void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSetup);
         
-        if (IsAddonAndNodesReady(PunchingMachine))
+        if (PunchingMachine->IsAddonAndNodesReady())
             new EventCompletePackt(2359300, 14).Send();
     }
 }

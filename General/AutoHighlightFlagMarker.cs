@@ -1,17 +1,14 @@
-// TODO: 闪现问题比较严重, 目前未知原因, 先注释掉
-/*
 using System;
 using System.Linq;
 using System.Numerics;
 using DailyRoutines.Abstracts;
-using DailyRoutines.Helpers;
-using DailyRoutines.Managers;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -25,8 +22,8 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
         ModulesConflict = ["MultiTargetTracker"],
     };
 
-    private delegate        void SetFlagMarkerDelegate(AgentMap* agent, uint zoneID, uint mapID, float worldX, float worldZ, uint iconID = 60561);
-    private static          Hook<SetFlagMarkerDelegate>? SetFlagMarkerHook;
+    private delegate void SetFlagMarkerDelegate(AgentMap* agent, uint zoneID, uint mapID, float worldX, float worldZ, uint iconID = 60561);
+    private static   Hook<SetFlagMarkerDelegate>? SetFlagMarkerHook;
 
     private static Hook<AgentReceiveEventDelegate>? AgentMapReceiveEventHook;
 
@@ -35,20 +32,20 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        TaskHelper ??= new() { TimeLimitMS = 15_000 };
+        TaskHelper ??= new() { TimeoutMS = 15_000 };
 
-        SetFlagMarkerHook ??= DService.Hook.HookFromAddress<SetFlagMarkerDelegate>(
+        SetFlagMarkerHook ??= DService.Instance().Hook.HookFromAddress<SetFlagMarkerDelegate>(
             GetMemberFuncByName(typeof(AgentMap.MemberFunctionPointers), "SetFlagMapMarker"),
             SetFlagMarkerDetour);
         SetFlagMarkerHook.Enable();
 
-        AgentMapReceiveEventHook ??= DService.Hook.HookFromAddress<AgentReceiveEventDelegate>(
-            GetVFuncByName(AgentMap.Instance()->VirtualTable, "ReceiveEvent"),
-            AgentMapReceiveEventDetour);
+        AgentMapReceiveEventHook ??= AgentMap.Instance()->VirtualTable->HookVFuncFromName(
+            "ReceiveEvent",
+            (AgentReceiveEventDelegate)AgentMapReceiveEventDetour);
         AgentMapReceiveEventHook.Enable();
 
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        FrameworkManager.Register(OnUpdate, throttleMS: 3000);
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 3000);
     }
 
     protected override void ConfigUI()
@@ -59,14 +56,14 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
 
     protected override void Uninit()
     {
-        FrameworkManager.Unregister(OnUpdate);
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
+        FrameworkManager.Instance().Unreg(OnUpdate);
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
     }
 
     private void SetFlagMarkerDetour(AgentMap* agent, uint zoneID, uint mapID, float worldX, float worldZ, uint iconID = 60561)
     {
         SetFlagMarkerHook.Original(agent, zoneID, mapID, worldX, worldZ, iconID);
-        if (mapID != DService.ClientState.MapId || iconID != 60561) return;
+        if (mapID != DService.Instance().ClientState.MapId || iconID != 60561) return;
 
         OnZoneChanged(0);
     }
@@ -86,7 +83,7 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
         if (!IsFlagMarkerValid()) return;
         
         TaskHelper.Abort();
-        TaskHelper.Enqueue(() => DService.ObjectTable.LocalPlayer != null && !DService.Condition[ConditionFlag.BetweenAreas]);
+        TaskHelper.Enqueue(() => DService.Instance().ObjectTable.LocalPlayer != null && !DService.Instance().Condition[ConditionFlag.BetweenAreas]);
         TaskHelper.Enqueue(() =>
         {
             if (IsFlagMarkerValid()) return;
@@ -96,16 +93,16 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
         {
             var agent    = AgentMap.Instance();
             var flagPos  = new Vector2(agent->FlagMapMarkers[0].XFloat, agent->FlagMapMarkers[0].YFloat);
-            var currentY = DService.ObjectTable.LocalPlayer?.Position.Y ?? 0;
+            var currentY = DService.Instance().ObjectTable.LocalPlayer?.Position.Y ?? 0;
 
             var counter = 0;
             foreach (var fieldMarkerPoint in Enum.GetValues<FieldMarkerPoint>())
             {
                 var targetPos  = flagPos.ToVector3(currentY - 2 + (counter * 5));
-                var currentPos = FieldMarkerHelper.GetLocalPosition(fieldMarkerPoint);
+                var currentPos = fieldMarkerPoint.GetPosition();
                 if (Vector3.DistanceSquared(targetPos, currentPos) <= 9) continue;
 
-                FieldMarkerHelper.PlaceLocal(fieldMarkerPoint, flagPos.ToVector3(currentY - 2 + (counter * 5)), true);
+                MarkingController.Instance()->PlaceFieldMarkerLocal(fieldMarkerPoint, flagPos.ToVector3(currentY - 2 + (counter * 5)));
                 counter++;
             }
         });
@@ -138,15 +135,15 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
         {
             var agent    = AgentMap.Instance();
             var flagPos  = new Vector2(agent->FlagMapMarkers[0].XFloat, agent->FlagMapMarkers[0].YFloat);
-            var currentY = DService.ObjectTable.LocalPlayer?.Position.Y ?? 0;
+            var currentY = DService.Instance().ObjectTable.LocalPlayer?.Position.Y ?? 0;
                 
             var targetPos  = flagPos.ToVector3(currentY - 2 + (counter * 5));
-            var currentPos = FieldMarkerHelper.GetLocalPosition(fieldMarkerPoint);
+            var currentPos = fieldMarkerPoint.GetPosition();
                 
             if (Vector3.DistanceSquared(targetPos, currentPos) <= 9 && MarkingController.Instance()->FieldMarkers[(int)fieldMarkerPoint].Active) 
                 continue;
                     
-            FieldMarkerHelper.PlaceLocal(fieldMarkerPoint, flagPos.ToVector3(currentY - 2 + (counter * 5)), true);
+            MarkingController.Instance()->PlaceFieldMarkerLocal(fieldMarkerPoint, flagPos.ToVector3(currentY - 2 + (counter * 5)));
                 
             counter++;
         }
@@ -169,4 +166,3 @@ public unsafe class AutoHighlightFlagMarker : DailyModuleBase
         public bool ConstantlyUpdate;
     }
 }
-*/

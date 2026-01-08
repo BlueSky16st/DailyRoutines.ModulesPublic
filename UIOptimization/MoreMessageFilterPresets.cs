@@ -40,11 +40,11 @@ public class MoreMessageFilterPresets : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        DService.ContextMenu.OnMenuOpened += OnMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened += OnMenuOpened;
     }
 
     protected override void Uninit() =>
-        DService.ContextMenu.OnMenuOpened -= OnMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnMenuOpened;
 
     protected override void ConfigUI()
     {
@@ -107,10 +107,10 @@ public class MoreMessageFilterPresets : DailyModuleBase
         }
 
         ImGui.TableNextColumn();
-        ImGui.Text(GetLoc("Name"));
+        ImGui.TextUnformatted(GetLoc("Name"));
 
         ImGui.TableNextColumn();
-        ImGui.Text(GetLoc("MoreMessageFilterPresets-TargetTab"));
+        ImGui.TextUnformatted(GetLoc("MoreMessageFilterPresets-TargetTab"));
 
         for (var i = 0; i < ModuleConfig.Presets.Count; i++)
         {
@@ -191,7 +191,7 @@ public class MoreMessageFilterPresets : DailyModuleBase
             var name = RaptureLogModule.Instance()->GetTabName(i)->ToString();
             addonText.Payloads[1] = new TextPayload($"{i + 1}");
 
-            names[i] = name.IsNullOrEmpty() ? addonText.ExtractText() : name;
+            names[i] = name.IsNullOrEmpty() ? addonText.ToString() : name;
         }
 
         return names;

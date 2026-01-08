@@ -22,16 +22,16 @@ public class CopyItemNameContextMenu : DailyModuleBase
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
 
     private static readonly string CopyItemNameString = LuminaWrapper.GetAddonText(159);
-    private static readonly string GlamoursString     = LuminaGetter.GetRow<CircleActivity>(18)!.Value.Name.ExtractText();
+    private static readonly string GlamoursString     = LuminaGetter.GetRow<CircleActivity>(18)!.Value.Name.ToString();
 
     private static readonly CopyItemNameMenuItem MenuItem        = new(CopyItemNameString);
     private static readonly CopyItemNameMenuItem GlamourMenuItem = new($"{CopyItemNameString} ({GlamoursString})");
 
     protected override void Init() => 
-        DService.ContextMenu.OnMenuOpened += OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened += OnContextMenuOpened;
 
     protected override void Uninit() => 
-        DService.ContextMenu.OnMenuOpened -= OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnContextMenuOpened;
 
     private static unsafe void OnContextMenuOpened(IMenuOpenedArgs args)
     {
@@ -76,15 +76,15 @@ public class CopyItemNameContextMenu : DailyModuleBase
                 return;
         }
 
-        var prismBoxItem = ContextMenuItemManager.GetPrismBoxItem(args);
+        var prismBoxItem = ContextMenuItemManager.Instance().GetPrismBoxItem(args);
 
-        var itemID = prismBoxItem?.RowId ?? ContextMenuItemManager.CurrentItemID;
+        var itemID = prismBoxItem?.RowId ?? ContextMenuItemManager.Instance().CurrentItemID;
         if (itemID == 0) return;
 
         MenuItem.SetRawItemID(itemID);
         args.AddMenuItem(MenuItem.Get());
 
-        var glamourID = ContextMenuItemManager.CurrentGlamourID;
+        var glamourID = ContextMenuItemManager.Instance().CurrentGlamourID;
         if (glamourID == 0) return;
 
         GlamourMenuItem.SetRawItemID(glamourID);
@@ -105,13 +105,13 @@ public class CopyItemNameContextMenu : DailyModuleBase
             var itemName = string.Empty;
 
             if (ItemID >= 2000000 && LuminaGetter.TryGetRow<EventItem>(ItemID, out var eventItem))
-                itemName = eventItem.Singular.ExtractText();
+                itemName = eventItem.Singular.ToString();
             else
             {
                 ItemID %= 500000;
 
                 if (LuminaGetter.TryGetRow<Item>(ItemID, out var item))
-                    itemName = item.Name.ExtractText();
+                    itemName = item.Name.ToString();
             }
 
             if (string.IsNullOrWhiteSpace(itemName))

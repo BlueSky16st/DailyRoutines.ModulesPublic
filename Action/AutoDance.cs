@@ -20,9 +20,9 @@ public unsafe class AutoDance : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
 
-        UseActionManager.RegUseActionLocation(OnPostUseAction);
+        UseActionManager.Instance().RegPostUseActionLocation(OnPostUseAction);
     }
 
     private void OnPostUseAction(
@@ -36,16 +36,16 @@ public unsafe class AutoDance : DailyModuleBase
     {
         if (!result || actionType != ActionType.Action || !DanceActions.Contains(actionID)) return;
         
-        var gauge = DService.JobGauges.Get<DNCGauge>();
+        var gauge = DService.Instance().JobGauges.Get<DNCGauge>();
         if (gauge.IsDancing) return;
         
         TaskHelper.Enqueue(() => gauge.IsDancing);
         TaskHelper.Enqueue(() => DanceStep(actionID != 15997));
     }
 
-    private bool? DanceStep(bool isTechnicalStep)
+    private bool DanceStep(bool isTechnicalStep)
     {
-        var gauge = DService.JobGauges.Get<DNCGauge>();
+        var gauge = DService.Instance().JobGauges.Get<DNCGauge>();
         if (!gauge.IsDancing)
         {
             TaskHelper.Abort();
@@ -59,7 +59,7 @@ public unsafe class AutoDance : DailyModuleBase
             if (ActionManager.Instance()->GetActionStatus(ActionType.Action, nextStep) != 0) 
                 return false;
             
-            if (UseActionManager.UseActionLocation(ActionType.Action, nextStep))
+            if (UseActionManager.Instance().UseActionLocation(ActionType.Action, nextStep))
             {
                 TaskHelper.Enqueue(() => DanceStep(isTechnicalStep));
                 return true;
@@ -71,7 +71,7 @@ public unsafe class AutoDance : DailyModuleBase
 
     protected override void Uninit()
     {
-        UseActionManager.Unreg(OnPostUseAction);
+        UseActionManager.Instance().Unreg(OnPostUseAction);
 
         TaskHelper?.Abort();
         TaskHelper = null;

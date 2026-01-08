@@ -21,7 +21,7 @@ public class AutoMonsterToss : DailyModuleBase
     {
         TaskHelper ??= new();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "BasketBall", OnAddonSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "BasketBall", OnAddonSetup);
     }
 
     protected override void ConfigUI()
@@ -82,7 +82,7 @@ public class AutoMonsterToss : DailyModuleBase
         TaskHelper.Enqueue(EnqueueNewRound);
     }
     
-    private bool? EnqueueNewRound()
+    private bool EnqueueNewRound()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
         if (OccupiedInEvent) return false;
@@ -91,12 +91,12 @@ public class AutoMonsterToss : DailyModuleBase
         return true;
     }
     
-    private static unsafe bool? WaitSelectStringAddon() =>
-        IsAddonAndNodesReady(SelectString) && IsAddonAndNodesReady(BasketBall);
+    private static unsafe bool WaitSelectStringAddon() =>
+        SelectString->IsAddonAndNodesReady() && BasketBall->IsAddonAndNodesReady();
     
     private static unsafe void UpdateSelectStringInfo(string info)
     {
-        if (!IsAddonAndNodesReady(SelectString) || !IsAddonAndNodesReady(BasketBall)) return;
+        if (!SelectString->IsAddonAndNodesReady() || !BasketBall->IsAddonAndNodesReady()) return;
 
         var list = SelectString->GetComponentListById(3);
         var text = SelectString->GetTextNodeById(2);
@@ -121,9 +121,9 @@ public class AutoMonsterToss : DailyModuleBase
 
     protected override unsafe void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSetup);
         
-        if (IsAddonAndNodesReady(BasketBall))
+        if (BasketBall->IsAddonAndNodesReady())
             new EventCompletePackt(0x240001, 14).Send();
     }
 }

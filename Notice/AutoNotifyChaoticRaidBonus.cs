@@ -40,7 +40,7 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
         AllDataCenters.ForEach(x => ModuleConfig.DataCentersNotifyTime.TryAdd(x, 0));
         SaveConfig(ModuleConfig);
         
-        FrameworkManager.Reg(OnUpdate, throttleMS: 60_000);
+        FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 60_000);
         
         RunCheck(true);
     }
@@ -73,7 +73,7 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
 
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.Text($"{name}");
+            ImGui.TextUnformatted($"{name}");
             
             var enabled = isEnabled;
             ImGui.TableNextColumn();
@@ -84,7 +84,7 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
             }
             
             ImGui.TableNextColumn();
-            ImGui.Text($"{DateTimeOffset.FromUnixTimeSeconds(timeUnix).LocalDateTime}");
+            ImGui.TextUnformatted($"{DateTimeOffset.FromUnixTimeSeconds(timeUnix).LocalDateTime}");
         }
     }
 
@@ -105,7 +105,7 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
         async Task Get(string dcName)
         {
             if (!ModuleConfig.DataCenters.TryGetValue(dcName, out var isEnabled) || 
-                (!isEnabled && GameState.CurrentDataCenterData.Name.ExtractText() != dcName)) 
+                (!isEnabled && GameState.CurrentDataCenterData.Name.ToString() != dcName)) 
                 return;
             // 小于 3 小时
             if (!ModuleConfig.DataCentersNotifyTime.TryGetValue(dcName, out var lastTime) || 
@@ -113,8 +113,8 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
                 return;
 
             // 不在副本内且当前就在目标大区
-            if (DService.ClientState.IsLoggedIn && !GameState.IsInInstanceArea && 
-                GameState.CurrentDataCenterData.Name.ExtractText() == dcName)
+            if (DService.Instance().ClientState.IsLoggedIn && !GameState.IsInInstanceArea && 
+                GameState.CurrentDataCenterData.Name.ToString() == dcName)
             {
                 var isBonusNow = GameState.IsChaoticRaidBonusActive;
                 if (isBonusNow)
@@ -155,7 +155,7 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
             Speak(text);
     }
 
-    protected override void Uninit() => FrameworkManager.Unreg(OnUpdate);
+    protected override void Uninit() => FrameworkManager.Instance().Unreg(OnUpdate);
 
     private class Config : ModuleConfiguration
     {

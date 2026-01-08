@@ -44,11 +44,14 @@ public unsafe class FastMinimizeWindow : DailyModuleBase
         CommandManager.RemoveSubCommand(CommandMini);
         CommandManager.RemoveSubCommand(CommandTray);
         
-        var hwnd = Framework.Instance()->GameWindow->WindowHandle;
-        if (hwnd != nint.Zero && !IsWindowVisible(hwnd))
+        if (Initialized)
         {
-            ShowWindow(hwnd, SwShow);
-            SetForegroundWindow(hwnd);
+            var hwnd = Framework.Instance()->GameWindow->WindowHandle;
+            if (hwnd != nint.Zero && !IsWindowVisible(hwnd))
+            {
+                ShowWindow(hwnd, SwShow);
+                SetForegroundWindow(hwnd);
+            }
         }
         
         DisposeTrayIcon();
@@ -59,8 +62,8 @@ public unsafe class FastMinimizeWindow : DailyModuleBase
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("Command"));
         using (ImRaii.PushIndent())
         {
-            ImGui.Text($"/pdr {CommandMini} → {GetLoc("FastMinimizeWindow-MinimizeToTaskbar")}");
-            ImGui.Text($"/pdr {CommandTray} → {GetLoc("FastMinimizeWindow-MinimizeToTray")}");
+            ImGui.TextUnformatted($"/pdr {CommandMini} → {GetLoc("FastMinimizeWindow-MinimizeToTaskbar")}");
+            ImGui.TextUnformatted($"/pdr {CommandTray} → {GetLoc("FastMinimizeWindow-MinimizeToTray")}");
         }
         
         ImGui.NewLine();

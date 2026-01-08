@@ -25,9 +25,9 @@ public class AutoUseEarthsReply : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig =   LoadConfig<Config>() ?? new();
-        TaskHelper   ??= new() { TimeLimitMS = 8_000 };
+        TaskHelper   ??= new() { TimeoutMS = 8_000 };
         
-        UseActionManager.RegUseActionLocation(OnUseAction);
+        UseActionManager.Instance().RegPostUseActionLocation(OnUseAction);
     }
     
     protected override void ConfigUI()
@@ -44,20 +44,20 @@ public class AutoUseEarthsReply : DailyModuleBase
         if (actionType != ActionType.Action || actionID != RiddleOfEarthAction || !result) return;
 
         TaskHelper.Abort();
-        TaskHelper.DelayNext(8_000, $"Delay_UseAction{EarthsReplyAction}", false, 1);
+        TaskHelper.DelayNext(8_000, $"Delay_UseAction{EarthsReplyAction}", 1);
         TaskHelper.Enqueue(() =>
                            {
-                               if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return;
+                               if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return;
 
                                if (!ModuleConfig.UseWhenSprint && localPlayer.StatusList.HasStatus(SprintStatus)) return;
                                if (!ModuleConfig.UseWhenGuard  && localPlayer.StatusList.HasStatus(GuardStatus)) return;
 
-                               UseActionManager.UseActionLocation(ActionType.Action, EarthsReplyAction);
-                           }, $"UseAction_{EarthsReplyAction}", 500, true, 1);
+                               UseActionManager.Instance().UseActionLocation(ActionType.Action, EarthsReplyAction);
+                           }, $"UseAction_{EarthsReplyAction}", 500, weight: 1);
     }
 
     protected override void Uninit() => 
-        UseActionManager.Unreg(OnUseAction);
+        UseActionManager.Instance().Unreg(OnUseAction);
 
     public class Config : ModuleConfiguration
     {

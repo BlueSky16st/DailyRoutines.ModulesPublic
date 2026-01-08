@@ -43,28 +43,28 @@ public unsafe class OptimizedQuickPanel : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
         
-        ChatManager.RegPreExecuteCommandInner(OnPreExecuteCommandInner);
+        ChatManager.Instance().RegPreExecuteCommandInner(OnPreExecuteCommandInner);
         
-        AgentQuickPanelShowHook = DService.Hook.HookFromAddress<AgentShowDelegate>(
-            GetVFuncByName(AgentQuickPanel.Instance()->VirtualTable, "Show"),
+        AgentQuickPanelShowHook = DService.Instance().Hook.HookFromAddress<AgentShowDelegate>(
+            AgentQuickPanel.Instance()->VirtualTable->GetVFuncByName("Show"),
             AgentQuickPanelShowDetour);
         AgentQuickPanelShowHook.Enable();
         
-        ToggleUIHook = DService.Hook.HookFromAddress<ToggleUIDelegate>(
-            GetVFuncByName(UIModule.Instance()->VirtualTable, "ToggleUi"),
+        ToggleUIHook = DService.Instance().Hook.HookFromAddress<ToggleUIDelegate>(
+            UIModule.Instance()->VirtualTable->GetVFuncByName("ToggleUi"),
             ToggleUIDetour);
         ToggleUIHook.Enable(); 
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "QuickPanel", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "QuickPanel", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "QuickPanel", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "QuickPanel", OnAddon);
 
         UpdateAddonFlags();
     }
 
     protected override void Uninit()
     {
-        ChatManager.Unreg(OnPreExecuteCommandInner);
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        ChatManager.Instance().Unreg(OnPreExecuteCommandInner);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         OnAddon(AddonEvent.PreFinalize, null);
     }
 
@@ -74,8 +74,8 @@ public unsafe class OptimizedQuickPanel : DailyModuleBase
 
         using (ImRaii.PushIndent())
         {
-            ImGui.Text($"{QuickPanelLine.Command} <{GetLoc("OptimizedQuickPanel-CommandArgs")} / close> → {GetLoc("OptimizedQuickPanel-CommandArgs-Help")} / {LuminaWrapper.GetAddonText(2366)}");
-            ImGui.Text($"{QuickPanelLine.Alias} <{GetLoc("OptimizedQuickPanel-CommandArgs")} / close> → {GetLoc("OptimizedQuickPanel-CommandArgs-Help")} / {LuminaWrapper.GetAddonText(2366)}");
+            ImGui.TextUnformatted($"{QuickPanelLine.Command} <{GetLoc("OptimizedQuickPanel-CommandArgs")} / close> → {GetLoc("OptimizedQuickPanel-CommandArgs-Help")} / {LuminaWrapper.GetAddonText(2366)}");
+            ImGui.TextUnformatted($"{QuickPanelLine.Alias} <{GetLoc("OptimizedQuickPanel-CommandArgs")} / close> → {GetLoc("OptimizedQuickPanel-CommandArgs-Help")} / {LuminaWrapper.GetAddonText(2366)}");
         }
     }
 
@@ -262,7 +262,7 @@ public unsafe class OptimizedQuickPanel : DailyModuleBase
     {
         ToggleUIHook.Original(module, flags, enable, unknown);
         
-        if (flags.HasAnyFlag(UIModule.UiFlags.ActionBars))
+        if (flags.IsSetAny(UIModule.UiFlags.ActionBars))
         {
             // 隐藏
             if (!enable)

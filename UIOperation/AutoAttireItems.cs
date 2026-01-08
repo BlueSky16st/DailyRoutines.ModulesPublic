@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using DailyRoutines.Abstracts;
 using Dalamud.Game.Addon.Lifecycle;
@@ -33,24 +34,24 @@ public unsafe class AutoAttireItems : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper   ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper   ??= new() { TimeoutMS = 5_000 };
         ModuleConfig =   LoadConfig<Config>() ?? new();
 
-        LogMessageManager.Register(OnReceiveLogMessage);
+        LogMessageManager.Instance().RegPost(OnReceiveLogMessage);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "MiragePrismPrismSetConvert", OnAddonMiragePrismPrismSetConvert);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "MiragePrismPrismSetConvert", OnAddonMiragePrismPrismSetConvert);
-        if (IsAddonAndNodesReady(MiragePrismPrismSetConvert)) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "MiragePrismPrismSetConvert", OnAddonMiragePrismPrismSetConvert);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "MiragePrismPrismSetConvert", OnAddonMiragePrismPrismSetConvert);
+        if (MiragePrismPrismSetConvert->IsAddonAndNodesReady()) 
             OnAddonMiragePrismPrismSetConvert(AddonEvent.PostRefresh, null);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "MiragePrismPrismSetConvertC", OnAddonMiragePrismPrismSetConvertC);
-        if (IsAddonAndNodesReady(MiragePrismPrismSetConvertC)) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "MiragePrismPrismSetConvertC", OnAddonMiragePrismPrismSetConvertC);
+        if (MiragePrismPrismSetConvertC->IsAddonAndNodesReady()) 
             OnAddonMiragePrismPrismSetConvertC(AddonEvent.PostSetup, null);
     }
 
     protected override void ConfigUI()
     {
-        using (ImRaii.Disabled(TaskHelper.IsBusy || !IsAddonAndNodesReady(MiragePrismPrismBox)))
+        using (ImRaii.Disabled(TaskHelper.IsBusy || !MiragePrismPrismBox->IsAddonAndNodesReady()))
         {
             if (ImGui.Button(GetLoc("Start")))
                 RestoreItemsFromPrismBox();
@@ -72,13 +73,13 @@ public unsafe class AutoAttireItems : DailyModuleBase
 
     protected override void Uninit()
     {
-        LogMessageManager.Unregister(OnReceiveLogMessage);
+        LogMessageManager.Instance().Unreg(OnReceiveLogMessage);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonMiragePrismPrismSetConvert);
-        DService.AddonLifecycle.UnregisterListener(OnAddonMiragePrismPrismSetConvertC);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonMiragePrismPrismSetConvert);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonMiragePrismPrismSetConvertC);
     }
 
-    private void OnReceiveLogMessage(uint logMessageID)
+    private void OnReceiveLogMessage(uint logMessageID, Span<LogMessageParam> values)
     {
         if (logMessageID != 4280) return;
         TaskHelper.Abort();
@@ -111,11 +112,7 @@ public unsafe class AutoAttireItems : DailyModuleBase
             {
                 TaskHelper.Enqueue(() =>
                 {
-                    if (!IsInventoryFull([
-                            InventoryType.Inventory1, InventoryType.Inventory2,
-                            InventoryType.Inventory3, InventoryType.Inventory4
-                        ]))
-                        return;
+                    if (!PlayerInventories.IsFull()) return;
                     TaskHelper.Abort();
                 });
                 TaskHelper.Enqueue(() => MirageManager.Instance()->RestorePrismBoxItem((uint)index));
@@ -134,12 +131,12 @@ public unsafe class AutoAttireItems : DailyModuleBase
     private static void OnAddonMiragePrismPrismSetConvertC(AddonEvent type, AddonArgs? args)
     {
         if (MiragePrismPrismSetConvertC == null) return;
-        Callback(MiragePrismPrismSetConvertC, true, 0);
+        MiragePrismPrismSetConvertC->Callback(0);
     }
 
     private void FillMiragePrismBoxSet()
     {
-        if (!IsAddonAndNodesReady(MiragePrismPrismSetConvert) || TaskHelper.IsBusy) return;
+        if (!MiragePrismPrismSetConvert->IsAddonAndNodesReady() || TaskHelper.IsBusy) return;
         
         var slotCount = MiragePrismPrismSetConvert->AtkValues[20].UInt;
         if (slotCount == 0) return;
@@ -163,21 +160,21 @@ public unsafe class AutoAttireItems : DailyModuleBase
             var index = i;
             TaskHelper.Enqueue(() =>
             {
-                if (!IsAddonAndNodesReady(ContextIconMenu))
+                if (!ContextIconMenu->IsAddonAndNodesReady())
                 {
-                    Callback(MiragePrismPrismSetConvert, true, 13, index);
+                    MiragePrismPrismSetConvert->Callback(13, index);
                     return false;
                 }
                 else
                 {
-                    Callback(ContextIconMenu, true, 0, 0, 1021003u, 0u, 0);
+                    ContextIconMenu->Callback(0, 0, 1021003u, 0u, 0);
                     return true;
                 }
             });
         }
         
         TaskHelper.DelayNext(100);
-        TaskHelper.Enqueue(() => SendEvent(AgentId.MiragePrismPrismSetConvert, 1, 14));
+        TaskHelper.Enqueue(() => AgentId.MiragePrismPrismSetConvert.SendEvent(1, 14));
     }
     
 
@@ -193,7 +190,7 @@ public unsafe class AutoAttireItems : DailyModuleBase
         {
             if (!LuminaGetter.TryGetRow<Item>(row.RowId, out var setItemRow)) return null;
             
-            var setName = setItemRow.Name.ExtractText();
+            var setName = setItemRow.Name.ToString();
             if (string.IsNullOrWhiteSpace(setName)) return null;
 
             List<uint> setItemsID =
@@ -204,7 +201,7 @@ public unsafe class AutoAttireItems : DailyModuleBase
 
             var filitered = setItemsID
                             .Where(x => x > 1 && LuminaGetter.TryGetRow<Item>(x, out _))
-                            .Select(x => (x, LuminaGetter.GetRow<Item>(x)!.Value.Name.ExtractText()))
+                            .Select(x => (x, LuminaGetter.GetRow<Item>(x)!.Value.Name.ToString()))
                             .ToList();
             if (filitered.Count == 0) return null;
             

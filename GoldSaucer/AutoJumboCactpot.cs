@@ -28,10 +28,10 @@ public class AutoJumboCactpot : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        TaskHelper ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "LotteryWeeklyInput", OnAddon);
-        if (IsAddonAndNodesReady(LotteryWeeklyInput))
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "LotteryWeeklyInput", OnAddon);
+        if (LotteryWeeklyInput->IsAddonAndNodesReady())
             OnAddon(AddonEvent.PostSetup, null);
     }
 
@@ -79,7 +79,7 @@ public class AutoJumboCactpot : DailyModuleBase
                 return true;
             }
             
-            if (!IsAddonAndNodesReady(LotteryWeeklyInput)) return false;
+            if (!LotteryWeeklyInput->IsAddonAndNodesReady()) return false;
 
             var number = ModuleConfig.NumberMode switch
             {
@@ -88,7 +88,7 @@ public class AutoJumboCactpot : DailyModuleBase
                 _           => 0,
             };
 
-            Callback(LotteryWeeklyInput, true, number);
+            LotteryWeeklyInput->Callback(number);
             return true;
         });
         
@@ -100,7 +100,7 @@ public class AutoJumboCactpot : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
     private class Config : ModuleConfiguration
     {

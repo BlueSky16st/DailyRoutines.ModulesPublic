@@ -24,14 +24,14 @@ public class BaitSwitchCommand : DailyModuleBase
 
     private static readonly Dictionary<uint, (string NameLower, string NamePinyin)> Baits = 
         LuminaGetter.Get<Item>()
-                    .Where(x => x.FilterGroup == 17 && !string.IsNullOrWhiteSpace(x.Name.ExtractText()))
-                    .ToDictionary(x => x.RowId, x => (x.Name.ExtractText().ToLower(),
-                                                         PinyinHelper.GetPinyin(x.Name.ExtractText(), string.Empty)));
+                    .Where(x => x.FilterGroup == 17 && !string.IsNullOrWhiteSpace(x.Name.ToString()))
+                    .ToDictionary(x => x.RowId, x => (x.Name.ToString().ToLower(),
+                                                         PinyinHelper.GetPinyin(x.Name.ToString(), string.Empty)));
     private static readonly Dictionary<uint, (string NameLower, string NamePinyin)> Fishes = 
         LuminaGetter.Get<Item>()
-                    .Where(x => x.FilterGroup == 16 && !string.IsNullOrWhiteSpace(x.Name.ExtractText()))
-                    .ToDictionary(x => x.RowId, x => (x.Name.ExtractText().ToLower(),
-                                                         PinyinHelper.GetPinyin(x.Name.ExtractText(), string.Empty)));
+                    .Where(x => x.FilterGroup == 16 && !string.IsNullOrWhiteSpace(x.Name.ToString()))
+                    .ToDictionary(x => x.RowId, x => (x.Name.ToString().ToLower(),
+                                                         PinyinHelper.GetPinyin(x.Name.ToString(), string.Empty)));
 
     protected override void Init() => 
         CommandManager.AddSubCommand(Command, new(OnCommand) { HelpMessage = GetLoc("BaitSwitchCommand-CommandHelp") });
@@ -80,9 +80,9 @@ public class BaitSwitchCommand : DailyModuleBase
     private static void SwitchBait(uint itemID, bool isBait, int swimBaitIndex = -1)
     {
         if (isBait)
-            ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.Fish, 4, itemID);
+            ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.Fish, 4, itemID);
         else if (swimBaitIndex != -1)
-            ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.Fish, 25, (uint)swimBaitIndex);
+            ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.Fish, 25, (uint)swimBaitIndex);
     }
 
     private static bool TryFindItemByName(
@@ -96,7 +96,7 @@ public class BaitSwitchCommand : DailyModuleBase
         {
             var matchingItems = source
                                 .Where(x => x.Value.NameLower.Contains(itemName, StringComparison.OrdinalIgnoreCase) ||
-                                            (DService.ClientState.ClientLanguage == (ClientLanguage)4 &&
+                                            (DService.Instance().ClientState.ClientLanguage == (ClientLanguage)4 &&
                                              x.Value.NamePinyin.Contains(itemName, StringComparison.OrdinalIgnoreCase)))
                                 .OrderBy(x => x.Value.NameLower)
                                 .ToList();
@@ -118,7 +118,7 @@ public class BaitSwitchCommand : DailyModuleBase
             return false;
         }
 
-        var itemName = LuminaGetter.GetRow<Item>(itemID)?.Name.ExtractText();
+        var itemName = LuminaGetter.GetRow<Item>(itemID)?.Name.ToString();
 
         if (Baits.ContainsKey(itemID))
         {
@@ -140,7 +140,7 @@ public class BaitSwitchCommand : DailyModuleBase
             }
         }
 
-        if (DService.Condition[ConditionFlag.Fishing])
+        if (DService.Instance().Condition[ConditionFlag.Fishing])
         {
             ChatError(GetLoc("BaitSwitchCommand-Notice-FishingNow"));
             return false;

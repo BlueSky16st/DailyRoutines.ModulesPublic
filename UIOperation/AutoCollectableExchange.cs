@@ -32,8 +32,8 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
         
         HandInCollectables ??= HandInCollectablesSig.GetDelegate<HandInCollectablesDelegate>();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "CollectablesShop", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "CollectablesShop", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "CollectablesShop", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "CollectablesShop", OnAddon);
         if (InfosOm.CollectablesShop != null) 
             OnAddon(AddonEvent.PostSetup, null);
     }
@@ -53,7 +53,7 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
         if (buttonNode->IsVisible())
             buttonNode->ToggleVisibility(false);
 
-        using var font = FontManager.UIFont80.Push();
+        using var font = FontManager.Instance().UIFont80.Push();
 
         ImGui.SetWindowPos(new Vector2(addon->X + addon->GetScaledWidth(true), addon->Y + addon->GetScaledHeight(true)) - ImGui.GetWindowSize() -
                            ScaledVector2(12f));
@@ -82,22 +82,22 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
             ImGui.SameLine();
             using (ImRaii.Disabled(!buttonNode->NodeFlags.HasFlag(NodeFlags.Enabled)))
             {
-                if (ImGui.Button(LuminaGetter.GetRow<Addon>(531)!.Value.Text.ExtractText()))
+                if (ImGui.Button(LuminaGetter.GetRow<Addon>(531)!.Value.Text.ToString()))
                     HandInCollectables(AgentModule.Instance()->GetAgentByInternalId(AgentId.CollectablesShop));
             }
             
             ImGui.SameLine();
-            if (ImGui.Button(LuminaGetter.GetRow<InclusionShop>(3801094)!.Value.Unknown0.ExtractText()))
+            if (ImGui.Button(LuminaGetter.GetRow<InclusionShop>(3801094)!.Value.Unknown0.ToString()))
             {
                 TaskHelper.Enqueue(() =>
                 {
-                    if (IsAddonAndNodesReady(InfosOm.CollectablesShop))
+                    if (InfosOm.CollectablesShop->IsAddonAndNodesReady())
                         InfosOm.CollectablesShop->Close(true);
                 });
                 TaskHelper.Enqueue(() => !OccupiedInEvent);
-                TaskHelper.Enqueue(() => GamePacketManager.SendPackt(
-                                       new EventStartPackt(DService.ObjectTable.LocalPlayer.GameObjectID,
-                                                           GetScriptEventID(DService.ClientState.TerritoryType))));
+                TaskHelper.Enqueue(() => GamePacketManager.Instance().SendPackt(
+                                       new EventStartPackt(DService.Instance().ObjectTable.LocalPlayer.GameObjectID,
+                                                           GetScriptEventID(GameState.TerritoryType))));
             }
         }
     }
@@ -106,7 +106,7 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
     {
         TaskHelper.Enqueue(() =>
         {
-            if (InfosOm.CollectablesShop == null || IsAddonAndNodesReady(SelectYesno))
+            if (InfosOm.CollectablesShop == null || SelectYesno->IsAddonAndNodesReady())
             {
                 TaskHelper.Abort();
                 return true;
@@ -141,7 +141,7 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
 
     private void OnAddon(AddonEvent type, AddonArgs? args)
     {
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon == null) return;
         
         Overlay.IsOpen = type switch
@@ -153,5 +153,5 @@ public unsafe class AutoCollectableExchange : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 }

@@ -3,6 +3,7 @@ using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using AtkEventWrapper = OmenTools.Managers.AtkEventWrapper;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -21,17 +22,17 @@ public unsafe class AutoClaimPVPRewards : DailyModuleBase
     
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,   "PvpReward", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "PvpReward", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,   "PvpReward", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "PvpReward", OnAddon);
         if (PvpReward != null) 
             OnAddon(AddonEvent.PostSetup, null);
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         OnAddon(AddonEvent.PreFinalize, null);
     }
 
@@ -49,7 +50,7 @@ public unsafe class AutoClaimPVPRewards : DailyModuleBase
                 {
                     closeButton->OwnerNode->ClearEvents();
                     
-                    ClaimAllEvent = new AtkEventWrapper((_, _, _) =>
+                    ClaimAllEvent = new AtkEventWrapper((_, _, _, _) =>
                     {
                         for (var i = 0; i < 30; i++)
                         {
@@ -57,17 +58,17 @@ public unsafe class AutoClaimPVPRewards : DailyModuleBase
                                                {
                                                    if (!IsTrophyCrystalAboutToReachLimit()) return;
                                                    TaskHelper.Abort();
-                                               }, $"CheckTCAmount_Rank{i}");
+                                               }, $"检查战利水晶数量_等级{i}");
 
                             TaskHelper.Enqueue(
                                 () =>
                                 {
-                                    ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.CollectTrophyCrystal);
-                                    ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.CollectTrophyCrystal, 1);
+                                    ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.CollectTrophyCrystal);
+                                    ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.CollectTrophyCrystal, 1);
                                 },
-                                $"ClaimTC_Rank{i}");
+                                $"领取系列赛奖励_等级{i}");
 
-                            TaskHelper.DelayNext(10, $"Delay_Rank{i}");
+                            TaskHelper.DelayNext(10, $"等待 10 毫秒以便回包_等级{i}");
                         }
                     });
                     ClaimAllEvent.Add(PvpReward, (AtkResNode*)closeButton->OwnerNode, AtkEventType.ButtonClick);

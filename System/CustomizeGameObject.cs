@@ -49,8 +49,8 @@ public unsafe class CustomizeGameObject : DailyModuleBase
 
         CancelSource ??= new();
 
-        FrameworkManager.Reg(OnUpdate, true, 1000);
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
+        FrameworkManager.Instance().Reg(OnUpdate, true, 1000);
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
     }
 
     protected override void ConfigUI()
@@ -253,7 +253,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         // 类型
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.Text($"{GetLoc("CustomizeGameObject-CustomizeType")}:");
+        ImGui.TextUnformatted($"{GetLoc("CustomizeGameObject-CustomizeType")}:");
 
         ImGui.TableNextColumn();
         if (ImGui.BeginCombo("###CustomizeTypeSelectCombo", typeInput.ToString()))
@@ -273,7 +273,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         // 值
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.Text($"{GetLoc("Value")}:");
+        ImGui.TextUnformatted($"{GetLoc("Value")}:");
 
         ImGui.TableNextColumn();
         ImGui.InputText("###CustomizeValueInput", ref valueInput, 128);
@@ -284,7 +284,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         // 缩放
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.Text($"{GetLoc("CustomizeGameObject-Scale")}:");
+        ImGui.TextUnformatted($"{GetLoc("CustomizeGameObject-Scale")}:");
 
         ImGui.TableNextColumn();
         ImGui.SliderFloat("###CustomizeScaleSilder", ref scaleInput, 0.1f, 10f, "%.1f");
@@ -298,7 +298,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         // 备注
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.Text($"{GetLoc("Note")}:");
+        ImGui.TextUnformatted($"{GetLoc("Note")}:");
 
         ImGui.TableNextColumn();
         ImGui.InputText("###CustomizeNoteInput", ref noteInput, 128);
@@ -313,7 +313,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
     {
         if (gameObject is not ICharacter chara)
         {
-            ImGui.Text(GetLoc("CustomizeGameObject-NoTaretNotice"));
+            ImGui.TextUnformatted(GetLoc("CustomizeGameObject-NoTaretNotice"));
             return;
         }
 
@@ -328,9 +328,9 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         ImGui.AlignTextToFramePadding();
-        ImGui.Text($"{GetLoc("Name")}");
+        ImGui.TextUnformatted($"{GetLoc("Name")}");
 
-        var targetName = chara.Name.ExtractText();
+        var targetName = chara.Name.ToString();
         ImGui.TableNextColumn();
         ImGui.SetNextItemWidth(-1f);
         ImGui.InputText("###TargetNamePreview", ref targetName, 128, ImGuiInputTextFlags.ReadOnly);
@@ -339,7 +339,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         ImGui.AlignTextToFramePadding();
-        ImGui.Text("Data ID");
+        ImGui.TextUnformatted("Data ID");
 
         var targetDataID = chara.DataID.ToString();
         ImGui.TableNextColumn();
@@ -350,7 +350,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         ImGui.AlignTextToFramePadding();
-        ImGui.Text("Object ID");
+        ImGui.TextUnformatted("Object ID");
 
         var targetObjectID = chara.GameObjectID.ToString();
         ImGui.TableNextColumn();
@@ -361,7 +361,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         ImGui.AlignTextToFramePadding();
-        ImGui.Text("Model Chara ID");
+        ImGui.TextUnformatted("Model Chara ID");
 
         var targetModelCharaID = chara.ModelCharaID.ToString();
         ImGui.TableNextColumn();
@@ -372,7 +372,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
         ImGui.AlignTextToFramePadding();
-        ImGui.Text("Model Skeleton ID");
+        ImGui.TextUnformatted("Model Skeleton ID");
 
         var targetSkeletonID = chara.ModelSkeletonID.ToString();
         ImGui.TableNextColumn();
@@ -384,7 +384,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.AlignTextToFramePadding();
-            ImGui.Text("Mount Object ID");
+            ImGui.TextUnformatted("Mount Object ID");
 
             var targetMountObjectID = ((ulong)chara.ToStruct()->Mount.MountObject->GetGameObjectId()).ToString();
             ImGui.TableNextColumn();
@@ -396,12 +396,12 @@ public unsafe class CustomizeGameObject : DailyModuleBase
     private static void OnUpdate(IFramework framework)
     {
         if (ModuleConfig.CustomizePresets.Count == 0 ||
-            BetweenAreas                             || DService.ObjectTable.LocalPlayer == null ||
-            DService.PI.UiBuilder.CutsceneActive) return;
+            BetweenAreas                             || DService.Instance().ObjectTable.LocalPlayer == null ||
+            DService.Instance().PI.UiBuilder.CutsceneActive) return;
 
-        foreach (var obj in DService.ObjectTable)
+        foreach (var obj in DService.Instance().ObjectTable)
         {
-            if (obj.ObjectKind == ObjectKind.Player && string.IsNullOrWhiteSpace(obj.Name.ExtractText())) continue;
+            if (obj.ObjectKind == ObjectKind.Player && string.IsNullOrWhiteSpace(obj.Name.ToString())) continue;
             if (obj is not ICharacter chara) continue;
             
             var pTarget     = chara.ToStruct();
@@ -409,7 +409,7 @@ public unsafe class CustomizeGameObject : DailyModuleBase
             
             var targetAddress = (nint)pTarget;
 
-            var name            = chara.Name.ExtractText();
+            var name            = chara.Name.ToString();
             var dataID          = chara.DataID.ToString();
             var objectID        = chara.GameObjectID.ToString();
             var modelCharaID    = chara.ModelCharaID.ToString();
@@ -507,14 +507,14 @@ public unsafe class CustomizeGameObject : DailyModuleBase
 
     protected override void Uninit()
     {
-        FrameworkManager.Unreg(OnUpdate);
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
+        FrameworkManager.Instance().Unreg(OnUpdate);
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
         
         CancelSource?.Cancel();
         CancelSource?.Dispose();
         CancelSource = null;
 
-        if (DService.ObjectTable.LocalPlayer != null)
+        if (DService.Instance().ObjectTable.LocalPlayer != null)
             ResetAllCustomizeFromHistory();
 
         CustomizeHistory.Clear();

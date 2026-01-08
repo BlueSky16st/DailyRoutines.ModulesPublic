@@ -30,7 +30,7 @@ public class AutoNotifyMessages : DailyModuleBase
 
         KnownChatTypes = [.. Enum.GetValues<XivChatType>()];
 
-        DService.Chat.ChatMessage += OnChatMessage;
+        DService.Instance().Chat.ChatMessage += OnChatMessage;
     }
 
     protected override void ConfigUI()
@@ -127,7 +127,7 @@ public class AutoNotifyMessages : DailyModuleBase
         if (ModuleConfig.OnlyNotifyWhenBackground && !Framework.Instance()->WindowInactive) return;
         if (ModuleConfig.ValidChatTypes.Count == 0 && ModuleConfig.ValidKeywords.Count == 0) return;
 
-        var messageContent = message.ExtractText();
+        var messageContent = message.ToString();
         var conditionType = ModuleConfig.ValidChatTypes.Count > 0 && ModuleConfig.ValidChatTypes.Contains(type);
         var conditionMessage = ModuleConfig.ValidKeywords.Count > 0 &&
                                ModuleConfig.ValidKeywords.FirstOrDefault(
@@ -143,7 +143,7 @@ public class AutoNotifyMessages : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.Chat.ChatMessage -= OnChatMessage;
+        DService.Instance().Chat.ChatMessage -= OnChatMessage;
     }
 
     private class Config : ModuleConfiguration

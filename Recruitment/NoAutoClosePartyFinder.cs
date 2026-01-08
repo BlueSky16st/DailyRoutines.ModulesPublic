@@ -29,17 +29,17 @@ public unsafe class NoAutoClosePartyFinder : DailyModuleBase
         LookingForGroupHideHook = LookingForGroupHideSig.GetHook<LookingForGroupHideDelegate>(LookingForGroupHideDetour);
         LookingForGroupHideHook.Enable();
 
-        LogMessageManager.Register(OnPreReceiveMessage);
+        LogMessageManager.Instance().RegPre(OnPreReceiveMessage);
     }
 
-    private static void OnPreReceiveMessage(ref bool isPrevented, ref uint logMessageID)
+    private static void OnPreReceiveMessage(ref bool isPrevented, ref uint logMessageID, ref Span<LogMessageParam> values)
     {
         if (logMessageID != 947) return;
         
         isPrevented = true;
         
         LastPartyMemberChangeTime = DateTime.UtcNow.AddSeconds(1);
-        if (IsAddonAndNodesReady(LookingForGroupDetail))
+        if (LookingForGroupDetail->IsAddonAndNodesReady())
             LastViewTime = DateTime.UtcNow.AddSeconds(1);
     }
 
@@ -49,10 +49,10 @@ public unsafe class NoAutoClosePartyFinder : DailyModuleBase
         {
             if (DateTime.UtcNow < LastViewTime)
             {
-                if (IsAddonAndNodesReady(LookingForGroupDetail))
+                if (LookingForGroupDetail->IsAddonAndNodesReady())
                     LookingForGroupDetail->Close(true);
 
-                DService.Framework.RunOnTick(() => agent->OpenListing(agent->LastViewedListing.ListingId), TimeSpan.FromMilliseconds(100));
+                DService.Instance().Framework.RunOnTick(() => agent->OpenListing(agent->LastViewedListing.ListingId), TimeSpan.FromMilliseconds(100));
             }
             
             return;
@@ -62,5 +62,5 @@ public unsafe class NoAutoClosePartyFinder : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        LogMessageManager.Unregister(OnPreReceiveMessage);
+        LogMessageManager.Instance().Unreg(OnPreReceiveMessage);
 }

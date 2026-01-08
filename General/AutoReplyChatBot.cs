@@ -38,7 +38,7 @@ public class AutoReplyChatBot : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper ??= new() { TimeoutMS = 30_000 };
         
         ModuleConfig = LoadConfig<Config>() ?? new();
         if (ModuleConfig.SystemPrompts is not { Count: > 0 })
@@ -53,11 +53,11 @@ public class AutoReplyChatBot : DailyModuleBase
         ModuleConfig.SystemPrompts = ModuleConfig.SystemPrompts.DistinctBy(x => x.Name).ToList();
         SaveConfig(ModuleConfig);
 
-        DService.Chat.ChatMessage += OnChat;
+        DService.Instance().Chat.ChatMessage += OnChat;
     }
 
     protected override void Uninit() =>
-        DService.Chat.ChatMessage -= OnChat;
+        DService.Instance().Chat.ChatMessage -= OnChat;
 
     protected override void ConfigUI()
     {
@@ -198,7 +198,7 @@ public class AutoReplyChatBot : DailyModuleBase
                     
                     ImGui.NewLine();
                     
-                    ImGui.Text(GetLoc("AutoReplyChatBot-FilterSystemPrompt"));
+                    ImGui.TextUnformatted(GetLoc("AutoReplyChatBot-FilterSystemPrompt"));
                     
                     ImGui.SameLine();
                     if (ImGui.SmallButton($"{GetLoc("Reset")}##ResetFilterPrompt"))
@@ -352,7 +352,7 @@ public class AutoReplyChatBot : DailyModuleBase
                             using (ImRaii.PushIndent())
                             {
                                 // 词条名
-                                ImGui.Text(GetLoc("AutoReplyChatBot-WorldBookEntryName"));
+                                ImGui.TextUnformatted(GetLoc("AutoReplyChatBot-WorldBookEntryName"));
                                     
                                 ImGui.SetNextItemWidth(fieldW);
                                 ImGui.InputText($"##Key_{key}", ref key, 128);
@@ -369,7 +369,7 @@ public class AutoReplyChatBot : DailyModuleBase
                                 }
                                     
                                 // 词条释义
-                                ImGui.Text(GetLoc("AutoReplyChatBot-WorldBookEntryContent"));
+                                ImGui.TextUnformatted(GetLoc("AutoReplyChatBot-WorldBookEntryContent"));
                                     
                                 ImGui.SetNextItemWidth(promptW);
                                 ImGui.InputTextMultiline($"##Value_{key}", ref value, 2048, new(promptW, 100 * GlobalFontScale));
@@ -459,7 +459,8 @@ public class AutoReplyChatBot : DailyModuleBase
                         {
                             var message = entries[i];
                             var isUser = message.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
-                            var timestamp = UnixSecondToDateTime(message.Timestamp).ToString("HH:mm:ss");
+                            message.LocalTime ??= message.Timestamp.ToUTCDateTimeFromUnixSeconds().ToLocalTime();
+                            var timestamp = message.LocalTime?.ToString("HH:mm:ss") ?? string.Empty;
 
                             using (ImRaii.PushColor(ImGuiCol.Text, new Vector4(0.90f, 0.85f, 1f, 1f), !isUser))
                             using (ImRaii.PushColor(ImGuiCol.Text, new Vector4(0.85f, 0.90f, 1f, 1f), isUser))
@@ -577,73 +578,73 @@ public class AutoReplyChatBot : DailyModuleBase
         switch (originalType)
         {
             case XivChatType.TellIncoming:
-                ChatManager.SendMessage($"/tell {target} {reply}");
+                ChatManager.Instance().SendMessage($"/tell {target} {reply}");
                 break;
             case XivChatType.Party:
-                ChatManager.SendMessage($"/p {reply}");
+                ChatManager.Instance().SendMessage($"/p {reply}");
                 break;
             case XivChatType.FreeCompany:
-                ChatManager.SendMessage($"/fc {reply}");
+                ChatManager.Instance().SendMessage($"/fc {reply}");
                 break;
             case XivChatType.Ls1:
-                ChatManager.SendMessage($"/l1 {reply}");
+                ChatManager.Instance().SendMessage($"/l1 {reply}");
                 break;
             case XivChatType.Ls2:
-                ChatManager.SendMessage($"/l2 {reply}");
+                ChatManager.Instance().SendMessage($"/l2 {reply}");
                 break;
             case XivChatType.Ls3:
-                ChatManager.SendMessage($"/l3 {reply}");
+                ChatManager.Instance().SendMessage($"/l3 {reply}");
                 break;
             case XivChatType.Ls4:
-                ChatManager.SendMessage($"/l4 {reply}");
+                ChatManager.Instance().SendMessage($"/l4 {reply}");
                 break;
             case XivChatType.Ls5:
-                ChatManager.SendMessage($"/l5 {reply}");
+                ChatManager.Instance().SendMessage($"/l5 {reply}");
                 break;
             case XivChatType.Ls6:
-                ChatManager.SendMessage($"/l6 {reply}");
+                ChatManager.Instance().SendMessage($"/l6 {reply}");
                 break;
             case XivChatType.Ls7:
-                ChatManager.SendMessage($"/l7 {reply}");
+                ChatManager.Instance().SendMessage($"/l7 {reply}");
                 break;
             case XivChatType.Ls8:
-                ChatManager.SendMessage($"/l8 {reply}");
+                ChatManager.Instance().SendMessage($"/l8 {reply}");
                 break;
             case XivChatType.CrossLinkShell1:
-                ChatManager.SendMessage($"/cwlinkshell1 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell1 {reply}");
                 break;
             case XivChatType.CrossLinkShell2:
-                ChatManager.SendMessage($"/cwlinkshell2 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell2 {reply}");
                 break;
             case XivChatType.CrossLinkShell3:
-                ChatManager.SendMessage($"/cwlinkshell3 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell3 {reply}");
                 break;
             case XivChatType.CrossLinkShell4:
-                ChatManager.SendMessage($"/cwlinkshell4 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell4 {reply}");
                 break;
             case XivChatType.CrossLinkShell5:
-                ChatManager.SendMessage($"/cwlinkshell5 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell5 {reply}");
                 break;
             case XivChatType.CrossLinkShell6:
-                ChatManager.SendMessage($"/cwlinkshell6 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell6 {reply}");
                 break;
             case XivChatType.CrossLinkShell7:
-                ChatManager.SendMessage($"/cwlinkshell7 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell7 {reply}");
                 break;
             case XivChatType.CrossLinkShell8:
-                ChatManager.SendMessage($"/cwlinkshell8 {reply}");
+                ChatManager.Instance().SendMessage($"/cwlinkshell8 {reply}");
                 break;
             case XivChatType.Say:
-                ChatManager.SendMessage($"/say {reply}");
+                ChatManager.Instance().SendMessage($"/say {reply}");
                 break;
             case XivChatType.Yell:
-                ChatManager.SendMessage($"/yell {reply}");
+                ChatManager.Instance().SendMessage($"/yell {reply}");
                 break;
             case XivChatType.Shout:
-                ChatManager.SendMessage($"/shout {reply}");
+                ChatManager.Instance().SendMessage($"/shout {reply}");
                 break;
             default:
-                ChatManager.SendMessage($"/tell {target} {reply}");
+                ChatManager.Instance().SendMessage($"/tell {target} {reply}");
                 break;
         }
 
@@ -725,7 +726,7 @@ public class AutoReplyChatBot : DailyModuleBase
             return;
 
         ImGui.AlignTextToFramePadding();
-        ImGui.Text($"{GetLoc("AutoReplyChatBot-TestChat-Role")}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoReplyChatBot-TestChat-Role")}:");
         
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150f * GlobalFontScale);
@@ -734,7 +735,7 @@ public class AutoReplyChatBot : DailyModuleBase
             SaveConfig(ModuleConfig);
 
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("Name")}:");
+        ImGui.TextUnformatted($"{GetLoc("Name")}:");
         
         ImGui.SameLine();
         ImGui.SetNextItemWidth(150f * GlobalFontScale);
@@ -819,10 +820,10 @@ public class AutoReplyChatBot : DailyModuleBase
                             }
                         }
                         
-                        var dateTime = UnixSecondToDateTime(message.Timestamp);
-                        var timeStr  = dateTime.ToString("HH:mm:ss");
+                        message.LocalTime ??= message.Timestamp.ToUTCDateTimeFromUnixSeconds().ToLocalTime();
+                        var timeStr = message.LocalTime?.ToString("HH:mm:ss") ?? string.Empty;
 
-                        using (FontManager.UIFont80.Push())
+                        using (FontManager.Instance().UIFont80.Push())
                             ImGui.TextDisabled($"[{timeStr}] {message.Name}");
                     }
                     
@@ -849,8 +850,8 @@ public class AutoReplyChatBot : DailyModuleBase
 
             TaskHelper.Abort();
             TaskHelper.DelayNext(1000, "等待 1 秒收集更多消息");
-            TaskHelper.Enqueue(() => IsCooldownReady());
-            TaskHelper.EnqueueAsync(() => Task.Run(async () =>
+            TaskHelper.Enqueue(IsCooldownReady);
+            TaskHelper.EnqueueAsync(async () =>
             {
                 SetCooldown();
                 
@@ -871,7 +872,7 @@ public class AutoReplyChatBot : DailyModuleBase
                     AppendHistory(historyKey, "assistant", reply);
 
                 currentWindow.IsProcessing = false;
-            }));
+            });
         }
     }
 
@@ -1090,7 +1091,7 @@ public class AutoReplyChatBot : DailyModuleBase
         {
             var name     = p.PlayerName;
             var worldID  = (ushort)p.World.RowId;
-            var worldStr = p.World.Value.Name.ExtractText();
+            var worldStr = p.World.Value.Name.ToString();
             if (!string.IsNullOrEmpty(name))
                 return (name, worldID, worldStr);
         }
@@ -1202,6 +1203,9 @@ public class AutoReplyChatBot : DailyModuleBase
         public string Text      { get; set; } = string.Empty;
         public long   Timestamp { get; set; }
         public string Name      { get; set; } = string.Empty;
+        
+        [JsonIgnore]
+        public DateTime? LocalTime { get; set; }
 
         public ChatMessage() => Timestamp = GameState.ServerTimeUnix;
 
@@ -1406,12 +1410,12 @@ public class AutoReplyChatBot : DailyModuleBase
     private static readonly Dictionary<GameContextType, Func<string>> GameContextValueMap = new()
     {
         [GameContextType.PlayerName]   = () => LocalPlayerState.Name,
-        [GameContextType.ClassJob]     = () => LocalPlayerState.ClassJobData.Name.ExtractText(),
+        [GameContextType.ClassJob]     = () => LocalPlayerState.ClassJobData.Name.ToString(),
         [GameContextType.Level]        = () => LocalPlayerState.CurrentLevel.ToString(),
-        [GameContextType.HomeWorld]    = () => GameState.HomeWorldData.Name.ExtractText(),
-        [GameContextType.CurrentWorld] = () => GameState.CurrentWorldData.Name.ExtractText(),
+        [GameContextType.HomeWorld]    = () => GameState.HomeWorldData.Name.ToString(),
+        [GameContextType.CurrentWorld] = () => GameState.CurrentWorldData.Name.ToString(),
         [GameContextType.CurrentZone]  = () => LuminaWrapper.GetZonePlaceName(GameState.TerritoryType),
-        [GameContextType.Weather]      = () => GameState.WeatherData.Name.ExtractText(),
+        [GameContextType.Weather]      = () => GameState.WeatherData.Name.ToString(),
         [GameContextType.LocalTime]    = () => new DateTimeOffset(DateTime.Now).ToString("yyyy/MM/dd HH:mm"),
         [GameContextType.EorzeaTime]   = () => EorzeaDate.GetTime().ToString()
     };

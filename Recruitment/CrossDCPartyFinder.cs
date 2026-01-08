@@ -38,7 +38,7 @@ public class CrossDCPartyFinder : DailyModuleBase
     private const string BASE_DETAIL_URL = "https://xivpf.littlenightmare.top/api/listing/";
     
     private static string LocatedDataCenter =>
-        GameState.CurrentDataCenterData.Name.ExtractText();
+        GameState.CurrentDataCenterData.Name.ToString();
 
     private static Hook<AgentReceiveEventDelegate>? AgentLookingForGroupReceiveEventHook;
 
@@ -70,20 +70,20 @@ public class CrossDCPartyFinder : DailyModuleBase
         Overlay       ??= new(this);
         Overlay.Flags |=  ImGuiWindowFlags.NoBackground;
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "LookingForGroup", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroup", OnAddon);
-        if (IsAddonAndNodesReady(LookingForGroup))
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "LookingForGroup", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroup", OnAddon);
+        if (LookingForGroup->IsAddonAndNodesReady())
             OnAddon(AddonEvent.PostSetup, null);
 
         AgentLookingForGroupReceiveEventHook ??=
-            DService.Hook.HookFromAddress<AgentReceiveEventDelegate>(
-                GetVFuncByName(AgentLookingForGroup.Instance()->VirtualTable, "ReceiveEvent"), AgentLookingForGroupReceiveEventDetour);
+            DService.Instance().Hook.HookFromAddress<AgentReceiveEventDelegate>(
+                AgentLookingForGroup.Instance()->VirtualTable->GetVFuncByName("ReceiveEvent"), AgentLookingForGroupReceiveEventDetour);
         AgentLookingForGroupReceiveEventHook.Enable();
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
         ClearResources();
 
@@ -101,16 +101,20 @@ public class CrossDCPartyFinder : DailyModuleBase
 
         if (SelectedDataCenter == LocatedDataCenter) return;
 
-        var nodeInfo0  = NodeState.Get(addon->GetNodeById(38));
-        var nodeInfo1  = NodeState.Get(addon->GetNodeById(31));
-        var nodeInfo2  = NodeState.Get(addon->GetNodeById(41));
-        var size       = nodeInfo0.Size + nodeInfo1.Size.WithX(0) + nodeInfo2.Size.WithX(0);
+        var nodeInfo0  = addon->GetNodeById(38)->GetNodeState();
+        var nodeInfo1  = addon->GetNodeById(31)->GetNodeState();
+        var nodeInfo2  = addon->GetNodeById(41)->GetNodeState();
+        var size       = nodeInfo0.Size + new Vector2(0, nodeInfo1.Height + nodeInfo2.Height);
         var sizeOffset = new Vector2(4, 4);
         ImGui.SetNextWindowPos(new(addon->GetNodeById(31)->ScreenX - 4f, addon->GetNodeById(31)->ScreenY));
         ImGui.SetNextWindowSize(size + (2 * sizeOffset));
         if (ImGui.Begin("###CrossDCPartyFinder_PartyListWindow",
-                        ImGuiWindowFlags.NoTitleBar            | ImGuiWindowFlags.NoResize   | ImGuiWindowFlags.NoDocking   |
-                        ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
+                        ImGuiWindowFlags.NoTitleBar            |
+                        ImGuiWindowFlags.NoResize              |
+                        ImGuiWindowFlags.NoDocking             |
+                        ImGuiWindowFlags.NoBringToFrontOnFocus |
+                        ImGuiWindowFlags.NoCollapse            |
+                        ImGuiWindowFlags.NoScrollbar           |
                         ImGuiWindowFlags.NoScrollWithMouse))
         {
             var isNeedToResetY = false;
@@ -144,7 +148,7 @@ public class CrossDCPartyFinder : DailyModuleBase
                     }
 
                     ImGui.SameLine();
-                    ImGui.Text($" {CurrentPage + 1} / {Math.Max(1, totalPages)} ");
+                    ImGui.TextUnformatted($" {CurrentPage + 1} / {Math.Max(1, totalPages)} ");
                     ImGuiOm.TooltipHover($"{ListingsDisplay.Count}");
 
                     ImGui.SameLine();
@@ -221,7 +225,7 @@ public class CrossDCPartyFinder : DailyModuleBase
             ImGui.TableNextRow();
 
             ImGui.TableNextColumn();
-            if (DService.Texture.TryGetFromGameIcon(new(listing.CategoryIcon), out var categoryTexture))
+            if (DService.Instance().Texture.TryGetFromGameIcon(new(listing.CategoryIcon), out var categoryTexture))
             {
                 ImGui.Spacing();
                 
@@ -236,14 +240,14 @@ public class CrossDCPartyFinder : DailyModuleBase
             ImGui.TableNextColumn();
             using (ImRaii.Group())
             {
-                using (FontManager.UIFont120.Push())
+                using (FontManager.Instance().UIFont120.Push())
                 {
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + (4f * GlobalFontScale));
                     ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{listing.Duty}");
                 }
                 
                 using (ImRaii.PushColor(ImGuiCol.Text, KnownColor.DarkGray.ToVector4()))
-                using (FontManager.UIFont90.Push())
+                using (FontManager.Instance().UIFont90.Push())
                 using (ImRaii.Group())
                 {
                     ImGui.SameLine(0, 8f * GlobalFontScale);
@@ -263,7 +267,7 @@ public class CrossDCPartyFinder : DailyModuleBase
 
                 var isDescEmpty = string.IsNullOrEmpty(listing.Description);
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() - (2f * GlobalFontScale));
-                using (FontManager.UIFont80.Push())
+                using (FontManager.Instance().UIFont80.Push())
                     ImGui.TextWrapped(isDescEmpty ? $"({LuminaWrapper.GetAddonText(11100)})" : $"{listing.Description}");
                 ImGui.Spacing();
                 
@@ -290,7 +294,7 @@ public class CrossDCPartyFinder : DailyModuleBase
                         using (ImRaii.PushStyle(ImGuiStyleVar.Alpha, 0.5f, !slot.Filled))
                         {
                             var displayIcon = slot.JobIcons.Count > 1 ? 62146 : slot.JobIcons[0];
-                            if (DService.Texture.TryGetFromGameIcon(new(displayIcon), out var jobTexture))
+                            if (DService.Instance().Texture.TryGetFromGameIcon(new(displayIcon), out var jobTexture))
                             {
                                 ImGui.Image(jobTexture.GetWrapOrEmpty().Handle, jobIconSize);
 
@@ -305,7 +309,7 @@ public class CrossDCPartyFinder : DailyModuleBase
                     {
                         ImGui.SameLine(0, 6f * GlobalFontScale);
                         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudYellow, listing.MinItemLevel != 0))
-                            ImGui.Text($"[{listing.MinItemLevel}]");
+                            ImGui.TextUnformatted($"[{listing.MinItemLevel}]");
                     }
                 }
                 
@@ -317,24 +321,24 @@ public class CrossDCPartyFinder : DailyModuleBase
             
             ImGui.SetCursorPosY(lineEndPosY - (3 * ImGui.GetTextLineHeightWithSpacing()) - (4 * ImGui.GetStyle().ItemSpacing.Y));
             using (ImRaii.Group())
-            using (FontManager.UIFont80.Push())
+            using (FontManager.Instance().UIFont80.Push())
             {
                 ImGui.NewLine();
 
                 ImGui.TextColored(KnownColor.Orange.ToVector4(), "当前位于:");
 
                 ImGui.SameLine();
-                ImGui.Text($"{listing.CreatedAtWorldName}");
+                ImGui.TextUnformatted($"{listing.CreatedAtWorldName}");
 
                 ImGui.TextColored(KnownColor.Orange.ToVector4(), "剩余人数:");
 
                 ImGui.SameLine();
-                ImGui.Text($"{listing.SlotAvailable - listing.SlotFilled}");
+                ImGui.TextUnformatted($"{listing.SlotAvailable - listing.SlotFilled}");
 
                 ImGui.TextColored(KnownColor.Orange.ToVector4(), "剩余时间:");
 
                 ImGui.SameLine();
-                ImGui.Text($"{TimeSpan.FromSeconds(listing.TimeLeft).TotalMinutes:F0} 分钟");
+                ImGui.TextUnformatted($"{TimeSpan.FromSeconds(listing.TimeLeft).TotalMinutes:F0} 分钟");
             }
             
             ImGui.TableNextRow();
@@ -394,11 +398,11 @@ public class CrossDCPartyFinder : DailyModuleBase
 
             NotificationInfo($"获取了 {ListingsDisplay.Count} 条招募信息");
 
-            await DService.Framework.RunOnFrameworkThread(() =>
+            await DService.Instance().Framework.RunOnFrameworkThread(() =>
             {
                 unsafe
                 {
-                    if (!IsAddonAndNodesReady(LookingForGroup)) return;
+                    if (!LookingForGroup->IsAddonAndNodesReady()) return;
                     LookingForGroup->GetTextNodeById(49)->SetText($"{SelectedDataCenter}: {ListingsDisplay.Count}");
                 }
             }).ConfigureAwait(false);
@@ -460,13 +464,13 @@ public class CrossDCPartyFinder : DailyModuleBase
     {
         ClearResources();
         
-        if (DService.ObjectTable.LocalPlayer is { } localPlayer)
+        if (DService.Instance().ObjectTable.LocalPlayer is { } localPlayer)
         {
             DataCenters = LuminaGetter.Get<WorldDCGroupType>()
                                       .Where(x => x.Region == localPlayer.HomeWorld.Value.DataCenter.Value.Region)
-                                      .Select(x => x.Name.ExtractText())
+                                      .Select(x => x.Name.ToString())
                                       .ToList();
-            SelectedDataCenter = GameState.CurrentDataCenterData.Name.ExtractText();
+            SelectedDataCenter = GameState.CurrentDataCenterData.Name.ToString();
         }
 
         switch (type)
@@ -498,7 +502,7 @@ public class CrossDCPartyFinder : DailyModuleBase
 
                             if (LocatedDataCenter == dataCenter)
                             {
-                                SendEvent(AgentId.LookingForGroup, 1, 17);
+                                AgentId.LookingForGroup.SendEvent(1, 17);
                                 return;
                             }
 
@@ -648,7 +652,7 @@ public class CrossDCPartyFinder : DailyModuleBase
                 12 => LuminaWrapper.GetAddonText(2306),
                 13 => LuminaWrapper.GetAddonText(2304),
                 14 => LuminaWrapper.GetAddonText(2307),
-                15 => LuminaGetter.GetRowOrDefault<ContentType>(30).Name.ExtractText(),
+                15 => LuminaGetter.GetRowOrDefault<ContentType>(30).Name.ToString(),
                 16 => LuminaWrapper.GetAddonText(7),
                 _  => string.Empty
             };
@@ -891,22 +895,22 @@ public class CrossDCPartyFinder : DailyModuleBase
             {
                 BattleJobs = LuminaGetter.Get<ClassJob>()
                                          .Where(x => x.RowId != 0 && x.DohDolJobIndex == -1)
-                                         .Select(x => x.Abbreviation.ExtractText())
+                                         .Select(x => x.Abbreviation.ToString())
                                          .ToHashSet();
 
                 TankJobs = LuminaGetter.Get<ClassJob>()
                                        .Where(x => x.RowId != 0 && x.Role is 1)
-                                       .Select(x => x.Abbreviation.ExtractText())
+                                       .Select(x => x.Abbreviation.ToString())
                                        .ToHashSet();
 
                 DPSJobs = LuminaGetter.Get<ClassJob>()
                                       .Where(x => x.RowId != 0 && (x.Role == 2 || x.Role == 3))
-                                      .Select(x => x.Abbreviation.ExtractText())
+                                      .Select(x => x.Abbreviation.ToString())
                                       .ToHashSet();
 
                 HealerJobs = LuminaGetter.Get<ClassJob>()
                                          .Where(x => x.RowId != 0 && x.Role is 4)
-                                         .Select(x => x.Abbreviation.ExtractText())
+                                         .Select(x => x.Abbreviation.ToString())
                                          .ToHashSet();
             }
 
@@ -945,7 +949,7 @@ public class CrossDCPartyFinder : DailyModuleBase
 
                     uint ParseClassJobIdByName(string job)
                     {
-                        var rowID = LuminaGetter.Get<ClassJob>().FirstOrDefault(x => x.Abbreviation.ExtractText() == job).RowId;
+                        var rowID = LuminaGetter.Get<ClassJob>().FirstOrDefault(x => x.Abbreviation.ToString() == job).RowId;
                         return rowID == 0 ? 62145 : 62100 + rowID;
                     }
                 }

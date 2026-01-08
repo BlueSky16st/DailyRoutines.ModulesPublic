@@ -13,6 +13,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
+using FFXIVClientStructs.FFXIV.Client.UI;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -48,17 +50,17 @@ public unsafe class MarkerInPartyList : DailyModuleBase
         LocalMarkingHook = LocalMarkingSig.GetHook<LocalMarkingDelegate>(LocalMarkingDetour);
         LocalMarkingHook.Enable();
 
-        DService.ClientState.TerritoryChanged += ResetMarkedObject;
+        DService.Instance().ClientState.TerritoryChanged += ResetMarkedObject;
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_PartyList", OnAddonPartyList);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_PartyList", OnAddonPartyList);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_PartyList", OnAddonPartyList);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_PartyList", OnAddonPartyList);
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonPartyList);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonPartyList);
         
-        DService.ClientState.TerritoryChanged -= ResetMarkedObject;
+        DService.Instance().ClientState.TerritoryChanged -= ResetMarkedObject;
 
         ResetPartyMemberList();
         ReleaseImageNodes();
@@ -111,13 +113,13 @@ public unsafe class MarkerInPartyList : DailyModuleBase
 
     private static void ResetPartyMemberList()
     {
-        if (!IsAddonAndNodesReady(PartyList)) return;
+        if (!PartyList->IsAddonAndNodesReady()) return;
         ModifyPartyMemberNumber(true);
     }
 
     private static void ModifyPartyMemberNumber(bool visible)
     {
-        if (!IsAddonAndNodesReady(PartyList) || (!ModuleConfig.HidePartyListIndexNumber && !visible))
+        if (!PartyList->IsAddonAndNodesReady() || (!ModuleConfig.HidePartyListIndexNumber && !visible))
             return;
 
         foreach (var id in Enumerable.Range(10, 8).ToList())
@@ -173,7 +175,7 @@ public unsafe class MarkerInPartyList : DailyModuleBase
 
     private static void ReleaseImageNodes()
     {
-        if (!IsAddonAndNodesReady(PartyList)) return;
+        if (!PartyList->IsAddonAndNodesReady()) return;
 
         foreach (var item in NodeList)
             item.DetachNode();
@@ -212,7 +214,7 @@ public unsafe class MarkerInPartyList : DailyModuleBase
     private static void RefreshNodeStatus()
     {
         var addon = PartyList;
-        if (!IsAddonAndNodesReady(addon))
+        if (!addon->IsAddonAndNodesReady())
             return;
 
         foreach (var (node, i) in NodeList.Zip(Enumerable.Range(10, 8)))
@@ -297,9 +299,9 @@ public unsafe class MarkerInPartyList : DailyModuleBase
         // 自身标记会触发两回，第一次a4: E000_0000, 第二次a4: 自身GameObjectId
         // 队友标记只会触发一回，a4: 队友GameObjectId
         // 鲶鱼精local a4: 0
-        // if (a4 != (nint?)DService.ObjectTable.LocalPlayer?.GameObjectId)
+        // if (a4 != (nint?)DService.Instance().ObjectTable.LocalPlayer?.GameObjectId)
 
-        TaskHelper.Insert(() => ProcessMarkIconSetted(markingType, (uint)objectID));
+        TaskHelper.Enqueue(() => ProcessMarkIconSetted(markingType, (uint)objectID));
         LocalMarkingHook!.Original(manager, markingType, objectID, entityID);
     }
 
@@ -312,9 +314,9 @@ public unsafe class MarkerInPartyList : DailyModuleBase
                 break;
 
             case AddonEvent.PostDraw:
-                if (!IsAddonAndNodesReady(PartyList)) return;
+                if (!PartyList->IsAddonAndNodesReady()) return;
 
-                if (NeedClear && MarkedObject.Count is 0 && IsScreenReady())
+                if (NeedClear && MarkedObject.Count is 0 && UIModule.IsScreenReady())
                 {
                     ResetPartyMemberList();
                     NeedClear = false;
@@ -351,7 +353,7 @@ public unsafe class MarkerInPartyList : DailyModuleBase
                             continue;
 
                         var index = (uint)i;
-                        TaskHelper.Insert(() => ProcessMarkIconSetted(index, gameObjectID));
+                        TaskHelper.Enqueue(() => ProcessMarkIconSetted(index, gameObjectID));
                     }
                 }
 

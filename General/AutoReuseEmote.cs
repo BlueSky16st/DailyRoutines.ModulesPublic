@@ -53,7 +53,7 @@ public class AutoReuseEmote : DailyModuleBase
         if (!TryParseEmoteByName(emoteName, out var emoteID)) return;
 
         CancelSource = new();
-        DService.Framework.Run(() => UseEmoteByID(emoteID, repeatInterval, CancelSource), CancelSource.Token);
+        DService.Instance().Framework.Run(() => UseEmoteByID(emoteID, repeatInterval, CancelSource), CancelSource.Token);
     }
 
     private static unsafe bool TryParseEmoteByName(string name, out ushort id)
@@ -63,10 +63,10 @@ public class AutoReuseEmote : DailyModuleBase
         if (string.IsNullOrWhiteSpace(name)) return false;
 
         var first = LuminaGetter.Get<Emote>()
-                               .Where(x => !string.IsNullOrWhiteSpace(x.Name.ExtractText()) &&
+                               .Where(x => !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
                                            x.TextCommand.ValueNullable != null)
-                               .Where(x => x.Name.ExtractText().ToLowerInvariant() == name ||
-                                           x.TextCommand.Value.Command.ExtractText().ToLowerInvariant().Trim('/') ==
+                               .Where(x => x.Name.ToString().ToLowerInvariant() == name ||
+                                           x.TextCommand.Value.Command.ToString().ToLowerInvariant().Trim('/') ==
                                            name)
                                .FirstOrDefault();
         if (first.RowId == 0) return false;
@@ -100,8 +100,8 @@ public class AutoReuseEmote : DailyModuleBase
                 }
             }
             
-            if (DService.ObjectTable.LocalPlayer == null ||
-                BetweenAreas || OccupiedInEvent || DService.Condition[ConditionFlag.InCombat])
+            if (DService.Instance().ObjectTable.LocalPlayer == null ||
+                BetweenAreas || OccupiedInEvent || DService.Instance().Condition[ConditionFlag.InCombat])
             {
                 CancelTokenAndNullify();
                 return;

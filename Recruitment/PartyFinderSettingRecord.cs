@@ -38,16 +38,16 @@ public unsafe class PartyFinderSettingRecord : DailyModuleBase
         AgentReceiveEventHook = AddonFireCallBackSig.GetHook<AddonFireCallBackDelegate>(AddonFireCallBackDetour);
         AgentReceiveEventHook.Enable();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "LookingForGroupCondition", OnLookingForGroupConditionAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroupCondition", OnLookingForGroupConditionAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "LookingForGroupCondition", OnLookingForGroupConditionAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroupCondition", OnLookingForGroupConditionAddon);
     }
 
     protected override void Uninit() =>
-        DService.AddonLifecycle.UnregisterListener(OnLookingForGroupConditionAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnLookingForGroupConditionAddon);
 
     protected override void OverlayUI()
     {
-        if (!EditInited || !IsAddonAndNodesReady(LookingForGroup) || !IsAddonAndNodesReady(LookingForGroupCondition))
+        if (!EditInited || !LookingForGroup->IsAddonAndNodesReady() || !LookingForGroupCondition->IsAddonAndNodesReady())
             return;
 
         var addon = LookingForGroupCondition;
@@ -78,7 +78,7 @@ public unsafe class PartyFinderSettingRecord : DailyModuleBase
                     title = GetLoc("None");
 
                 ImGui.AlignTextToFramePadding();
-                ImGui.Text($"{i + 1}: {title}");
+                ImGui.TextUnformatted($"{i + 1}: {title}");
                 ImGuiOm.TooltipHover(GetLoc("PartyFinderSettingRecord-Message", title, config.Description));
 
                 ImGui.SameLine();
@@ -99,7 +99,7 @@ public unsafe class PartyFinderSettingRecord : DailyModuleBase
             case AddonEvent.PostSetup:
                 Overlay.IsOpen = true;
 
-                if (EditInited || !IsAddonAndNodesReady(LookingForGroup))
+                if (EditInited || !LookingForGroup->IsAddonAndNodesReady())
                     return;
 
                 ApplyPreset(ModuleConfig.Last);
@@ -113,17 +113,17 @@ public unsafe class PartyFinderSettingRecord : DailyModuleBase
 
     private void ApplyPreset(PartyFinderSetting setting)
     {
-        if (!IsAddonAndNodesReady(LookingForGroup) || !IsAddonAndNodesReady(LookingForGroupCondition))
+        if (!LookingForGroup->IsAddonAndNodesReady() || !LookingForGroupCondition->IsAddonAndNodesReady())
             return;
 
-        Callback(LookingForGroupCondition, true, 11, setting.ItemLevel.AvgIL, setting.ItemLevel.IsEnableAvgIL);
-        Callback(LookingForGroupCondition, true, 12, setting.Category,        0);
-        Callback(LookingForGroupCondition, true, 13, setting.Duty,            0);
-        Callback(LookingForGroupCondition, true, 15, setting.Description,     0);
+        LookingForGroupCondition->Callback(11, setting.ItemLevel.AvgIL, setting.ItemLevel.IsEnableAvgIL);
+        LookingForGroupCondition->Callback(12, setting.Category,        0);
+        LookingForGroupCondition->Callback(13, setting.Duty,            0);
+        LookingForGroupCondition->Callback(15, setting.Description,     0);
 
         TaskHelper.DelayNext(100);
         TaskHelper.Enqueue(() => LookingForGroupCondition->Close(true));
-        TaskHelper.Enqueue(() => Callback(LookingForGroup, true, 14));
+        TaskHelper.Enqueue(() => LookingForGroup->Callback(14));
     }
 
     #region Hook

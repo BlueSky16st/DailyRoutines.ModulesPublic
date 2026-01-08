@@ -17,14 +17,14 @@ public unsafe class AutoClaimItemIgnoringMismatchJobAndLevel : DailyModuleBase
 
     protected override void Init()
     {
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddon);
-        if (IsAddonAndNodesReady(SelectYesno)) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddon);
+        if (SelectYesno->IsAddonAndNodesReady()) 
             OnAddon(AddonEvent.PostSetup, null);
     }
 
     private static void OnAddon(AddonEvent type, AddonArgs? args)
     {
-        if (!IsAddonAndNodesReady(SelectYesno)) return;
+        if (!SelectYesno->IsAddonAndNodesReady()) return;
         
         ClickSelectYesnoYes
         ([
@@ -35,5 +35,5 @@ public unsafe class AutoClaimItemIgnoringMismatchJobAndLevel : DailyModuleBase
         ]);
     }
 
-    protected override void Uninit() => DService.AddonLifecycle.UnregisterListener(OnAddon);
+    protected override void Uninit() => DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 }

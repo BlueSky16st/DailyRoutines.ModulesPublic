@@ -70,7 +70,7 @@ public class AutoHighlightCursor : DailyModuleBase
             
             ImGui.SameLine();
             if (ImGui.Button($"{FontAwesomeIcon.Icons.ToIconString()}"))
-                ChatManager.SendMessage("/xldata icon");
+                ChatManager.Instance().SendMessage("/xldata icon");
             ImGuiOm.TooltipHover($"{GetLoc("IconBrowser")}\n({GetLoc("IconBrowser-Suggestion")})");
         }
         
@@ -128,10 +128,8 @@ public class AutoHighlightCursor : DailyModuleBase
             imageNode.Origin = new Vector2(ModuleConfig.Size / 2.0f);
         }
 
-        public override void Update()
+        protected override void OnUpdate()
         {
-            base.Update();
-
             Size = new Vector2(ModuleConfig.Size);
 
             imageNode.Color  = ModuleConfig.Color;
@@ -148,7 +146,7 @@ public class AutoHighlightCursor : DailyModuleBase
             if (ModuleConfig is { OnlyShowInCombat: true } or { OnlyShowInDuty: true })
             {
                 var shouldShow = true;
-                shouldShow &= !ModuleConfig.OnlyShowInCombat || DService.Condition[ConditionFlag.InCombat];
+                shouldShow &= !ModuleConfig.OnlyShowInCombat || DService.Instance().Condition[ConditionFlag.InCombat];
                 shouldShow &= !ModuleConfig.OnlyShowInDuty || BoundByDuty;
                 shouldShow &= !ModuleConfig.HideOnCameraMove || (!isLeftHeld && !isRightHeld);
 

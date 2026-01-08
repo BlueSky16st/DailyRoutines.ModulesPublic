@@ -41,14 +41,14 @@ public class AutoOpenMapLinks : DailyModuleBase
     {
         ModuleConfig = new Config().Load(this);
 
-        DService.Chat.ChatMessage += HandleChatMessage;
-        DService.ContextMenu.OnMenuOpened += OnMenuOpen;
+        DService.Instance().Chat.ChatMessage += HandleChatMessage;
+        DService.Instance().ContextMenu.OnMenuOpened += OnMenuOpen;
     }
 
     protected override void Uninit()
     {
-        DService.Chat.ChatMessage -= HandleChatMessage;
-        DService.ContextMenu.OnMenuOpened -= OnMenuOpen;
+        DService.Instance().Chat.ChatMessage -= HandleChatMessage;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnMenuOpen;
     }
 
     private static void OnMenuOpen(IMenuOpenedArgs args)
@@ -181,7 +181,7 @@ public class AutoOpenMapLinks : DailyModuleBase
         {
             if (payload is PlayerPayload playerPayload)
             {
-                var senderName = $"{playerPayload.PlayerName}@{playerPayload.World.Value.Name.ExtractText()}";
+                var senderName = $"{playerPayload.PlayerName}@{playerPayload.World.Value.Name.ToString()}";
                 if (ModuleConfig.WhitelistPlayer.Contains(senderName))
                 {
                     SetFlag(territoryID, mapID, mapPayload.RawX, mapPayload.RawY);
@@ -194,7 +194,7 @@ public class AutoOpenMapLinks : DailyModuleBase
     private static unsafe void SetFlag(uint territoryID, uint mapID, int x, int y)
     {
         if (!ModuleConfig.IsFlagCentered)
-            DService.Gui.OpenMapWithMapLink(new(territoryID, mapID, x, y));
+            DService.Instance().Gui.OpenMapWithMapLink(new(territoryID, mapID, x, y));
         else
         {
             var agentMap = AgentMap.Instance();

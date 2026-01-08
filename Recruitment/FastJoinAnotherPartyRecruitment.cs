@@ -22,17 +22,17 @@ public unsafe class FastJoinAnotherPartyRecruitment : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 10_000 };
+        TaskHelper ??= new() { TimeoutMS = 10_000 };
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "LookingForGroupDetail", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroupDetail", OnAddon);
-        if (IsAddonAndNodesReady(LookingForGroupDetail)) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "LookingForGroupDetail", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroupDetail", OnAddon);
+        if (LookingForGroupDetail->IsAddonAndNodesReady()) 
             OnAddon(AddonEvent.PostDraw, null);
         
-        if (IsAddonAndNodesReady(LookingForGroup)) 
-            SendEvent(AgentId.LookingForGroup, 1, 17);
+        if (LookingForGroup->IsAddonAndNodesReady()) 
+            AgentId.LookingForGroup.SendEvent(1, 17);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonYesno);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonYesno);
     }
     private void OnAddonYesno(AddonEvent type, AddonArgs args)
     {
@@ -101,18 +101,18 @@ public unsafe class FastJoinAnotherPartyRecruitment : DailyModuleBase
         var currentCID = AgentLookingForGroup.Instance()->ListingContentId;
         if (currentCID == 0) return;
         
-        if (IsInAnyParty())
+        if (LocalPlayerState.IsInAnyParty)
         {
             taskHelper.Enqueue(() =>
             {
                 if (!Throttler.Throttle("FastJoinAnotherPartyRecruitment-Task", 100)) return false;
-                if (!IsInAnyParty()) return true;
+                if (!LocalPlayerState.IsInAnyParty) return true;
                 
-                ChatManager.SendMessage("/leave");
-                ChatManager.SendMessage("/pcmd breakup");
-                SendEvent(AgentId.PartyMember, 0, 2, 3);
+                ChatManager.Instance().SendMessage("/leave");
+                ChatManager.Instance().SendMessage("/pcmd breakup");
+                AgentId.PartyMember.SendEvent(0, 2, 3);
                 
-                return !IsInAnyParty();
+                return !LocalPlayerState.IsInAnyParty;
             });
         }
         
@@ -130,12 +130,12 @@ public unsafe class FastJoinAnotherPartyRecruitment : DailyModuleBase
         taskHelper.Enqueue(() =>
         {
             if (!Throttler.Throttle("FastJoinAnotherPartyRecruitment-Task")) return false;
-            if (!IsAddonAndNodesReady(LookingForGroupDetail)) return false;
+            if (!LookingForGroupDetail->IsAddonAndNodesReady()) return false;
             
             var buttonNode = LookingForGroupDetail->GetComponentButtonById(109);
             if (buttonNode == null) return false;
 
-            buttonNode->ClickAddonButton(LookingForGroupDetail);
+            buttonNode->Click();
             return true;
         });
         
@@ -145,8 +145,8 @@ public unsafe class FastJoinAnotherPartyRecruitment : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
-        DService.AddonLifecycle.UnregisterListener(OnAddonYesno);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonYesno);
 
         OnAddon(AddonEvent.PreFinalize, null);
     }

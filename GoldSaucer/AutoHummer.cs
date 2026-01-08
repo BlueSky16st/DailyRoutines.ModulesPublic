@@ -19,8 +19,8 @@ public class AutoHummer : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 10000 };
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Hummer", OnAddonSetup);
+        TaskHelper ??= new() { TimeoutMS = 10000 };
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Hummer", OnAddonSetup);
     }
 
     protected override void ConfigUI() => ConflictKeyText();
@@ -33,17 +33,17 @@ public class AutoHummer : DailyModuleBase
         TaskHelper.Enqueue(ClickGameButton);
     }
 
-    private bool? WaitSelectStringAddon()
+    private bool WaitSelectStringAddon()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
         return ClickSelectString(0);
     }
 
-    private unsafe bool? ClickGameButton()
+    private unsafe bool ClickGameButton()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
 
-        if (!IsAddonAndNodesReady(Hummer))
+        if (!Hummer->IsAddonAndNodesReady())
             return false;
 
         var button = Hummer->GetComponentButtonById(29);
@@ -51,7 +51,7 @@ public class AutoHummer : DailyModuleBase
 
         Hummer->IsVisible = false;
 
-        Callback(Hummer, true, 11, 3, 0);
+        Hummer->Callback(11, 3, 0);
 
         // 只是纯粹因为游玩动画太长了而已
         TaskHelper.DelayNext(5000);
@@ -59,14 +59,14 @@ public class AutoHummer : DailyModuleBase
         return true;
     }
 
-    private unsafe bool? StartAnotherRound()
+    private unsafe bool StartAnotherRound()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
         if (OccupiedInEvent) return false;
         
         var machineTarget = TargetManager.PreviousTarget;
         var machine =
-            machineTarget.Name.TextValue.Contains(LuminaGetter.GetRow<EObjName>(2005035)!.Value.Singular.ExtractText(),
+            machineTarget.Name.TextValue.Contains(LuminaGetter.GetRow<EObjName>(2005035)!.Value.Singular.ToString(),
                                                       StringComparison.OrdinalIgnoreCase)
                 ? (GameObject*)machineTarget.Address
                 : null;
@@ -81,5 +81,5 @@ public class AutoHummer : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddonSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSetup);
 }

@@ -43,9 +43,9 @@ public unsafe class PortraitAnimationTimeEditor : DailyModuleBase
                         ImGuiWindowFlags.NoScrollbar |
                         ImGuiWindowFlags.NoScrollWithMouse;
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "BannerEditor", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "BannerEditor", OnAddon);
-        if (IsAddonAndNodesReady(BannerEditor)) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "BannerEditor", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "BannerEditor", OnAddon);
+        if (BannerEditor->IsAddonAndNodesReady()) 
             OnAddon(AddonEvent.PostSetup, null);
     }
     
@@ -63,11 +63,11 @@ public unsafe class PortraitAnimationTimeEditor : DailyModuleBase
         var charaResNode = addon->GetNodeById(107);
         if (charaResNode == null) return;
 
-        var nodeState = NodeState.Get(charaResNode);
+        var nodeState = charaResNode->GetNodeState();
 
-        using var font = FontManager.UIFont80.Push();
+        using var font = FontManager.Instance().UIFont80.Push();
 
-        ImGui.SetWindowPos(nodeState.Position with { Y = nodeState.Position.Y - ImGui.GetWindowSize().Y - (2f * GlobalFontScale) });
+        ImGui.SetWindowPos(nodeState.TopLeft with { Y = nodeState.Y - ImGui.GetWindowSize().Y - (2f * GlobalFontScale) });
         ImGui.SetWindowSize(nodeState.Size with { Y = (3f * ImGui.GetTextLineHeightWithSpacing()) - (1 * ImGui.GetStyle().ItemSpacing.Y) });
 
         var control = GetAnimationControl(PortraitChara);
@@ -132,7 +132,7 @@ public unsafe class PortraitAnimationTimeEditor : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
     private void OnAddon(AddonEvent type, AddonArgs? args) =>
         Overlay.IsOpen = type switch

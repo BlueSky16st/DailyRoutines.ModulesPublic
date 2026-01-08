@@ -28,8 +28,8 @@ public class AutoNotifyDiademWeather : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
         
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        OnZoneChanged(DService.ClientState.TerritoryType);
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        OnZoneChanged(0);
     }
 
     protected override void ConfigUI()
@@ -38,7 +38,7 @@ public class AutoNotifyDiademWeather : DailyModuleBase
         
         var weathers = string.Join(',',
                                    ModuleConfig.Weathers
-                                               .Select(x => LuminaGetter.GetRow<Weather>(x)?.Name.ExtractText() ?? string.Empty)
+                                               .Select(x => LuminaGetter.GetRow<Weather>(x)?.Name.ToString() ?? string.Empty)
                                                .Distinct());
         using var combo = ImRaii.Combo("###WeathersCombo", weathers, ImGuiComboFlags.HeightLarge);
         if (combo)
@@ -46,10 +46,10 @@ public class AutoNotifyDiademWeather : DailyModuleBase
             foreach (var weather in SpecialWeathers)
             {
                 if (!LuminaGetter.TryGetRow<Weather>(weather, out var data)) continue;
-                if (!DService.Texture.TryGetFromGameIcon(new((uint)data.Icon), out var icon)) continue;
+                if (!DService.Instance().Texture.TryGetFromGameIcon(new((uint)data.Icon), out var icon)) continue;
 
                 if (ImGuiOm.SelectableImageWithText(icon.GetWrapOrEmpty().Handle,
-                                                    new(ImGui.GetTextLineHeightWithSpacing()), $"{data.Name.ExtractText()}",
+                                                    new(ImGui.GetTextLineHeightWithSpacing()), $"{data.Name.ToString()}",
                                                     ModuleConfig.Weathers.Contains(weather),
                                                     ImGuiSelectableFlags.DontClosePopups))
                 {
@@ -64,19 +64,18 @@ public class AutoNotifyDiademWeather : DailyModuleBase
 
     private static void OnZoneChanged(ushort zone)
     {
-        FrameworkManager.Unreg(OnUpdate);
+        FrameworkManager.Instance().Unreg(OnUpdate);
         
-        zone = (ushort)GameState.TerritoryType;
-        if (zone != 939) return;
+        if (GameState.TerritoryType != 939) return;
 
-        FrameworkManager.Reg(OnUpdate, throttleMS: 10_000);
+        FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 10_000);
     }
 
     private static unsafe void OnUpdate(IFramework framework)
     {
         if (GameState.TerritoryType != 939)
         {
-            FrameworkManager.Unreg(OnUpdate);
+            FrameworkManager.Instance().Unreg(OnUpdate);
             return;
         }
         
@@ -86,15 +85,15 @@ public class AutoNotifyDiademWeather : DailyModuleBase
         LastWeather = weatherID;
         if (!ModuleConfig.Weathers.Contains(weatherID)) return;
 
-        var message = GetLoc("AutoNotifyDiademWeather-Notification", weather.Name.ExtractText());
+        var message = GetLoc("AutoNotifyDiademWeather-Notification", weather.Name.ToString());
         Chat(message);
         NotificationInfo(message);
     }
 
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        FrameworkManager.Unreg(OnUpdate);
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        FrameworkManager.Instance().Unreg(OnUpdate);
 
         LastWeather = 0;
     }

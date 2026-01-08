@@ -34,20 +34,20 @@ public unsafe class AutoAcceptInvitation : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnSelectYesno);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnSelectYesno);
     }
 
     protected override void ConfigUI()
     {
         ImGui.AlignTextToFramePadding();
-        ImGui.Text($"{GetLoc("Mode")}:");
+        ImGui.TextUnformatted($"{GetLoc("Mode")}:");
         
         ImGui.SameLine();
         if (ImGuiComponents.ToggleButton("ModeSwitch", ref ModuleConfig.Mode))
             SaveConfig(ModuleConfig);
         
         ImGui.SameLine();
-        ImGui.Text(GetLoc(ModuleConfig.Mode ? "Whitelist" : "Blacklist"));
+        ImGui.TextUnformatted(GetLoc(ModuleConfig.Mode ? "Whitelist" : "Blacklist"));
         
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{LuminaWrapper.GetAddonText(9818)}:");
 
@@ -84,7 +84,7 @@ public unsafe class AutoAcceptInvitation : DailyModuleBase
             ImGui.Bullet();
             
             ImGui.SameLine(0, 8f * GlobalFontScale);
-            ImGui.Text($"{player}");
+            ImGui.TextUnformatted($"{player}");
         }
 
         if (playersToRemove.Count > 0)
@@ -97,9 +97,9 @@ public unsafe class AutoAcceptInvitation : DailyModuleBase
     private static void OnSelectYesno(AddonEvent type, AddonArgs args)
     {
         var addon = (AddonSelectYesno*)SelectYesno;
-        if (addon == null || DService.PartyList.Length > 1) return;
+        if (addon == null || DService.Instance().PartyList.Length > 1) return;
         
-        var text = addon->PromptText->NodeText.ExtractText();
+        var text = addon->PromptText->NodeText.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
         
         var playerName = ExtractPlayerName(text);
@@ -129,7 +129,7 @@ public unsafe class AutoAcceptInvitation : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnSelectYesno);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnSelectYesno);
     
     private class Config : ModuleConfiguration
     {

@@ -52,7 +52,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
         
-        TaskHelper ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
         
         Overlay       ??= new(this);
         Overlay.Flags |=  ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoScrollWithMouse;
@@ -68,7 +68,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
                 ModuleConfig.SoundEffectNotes[i] = $"<se.{i}>";
         }
         
-        Searcher ??= new(LuminaGetter.Get<Item>(), [x => x.Name.ExtractText(), x => x.RowId.ToString()]);
+        Searcher ??= new(LuminaGetter.Get<Item>(), [x => x.Name.ToString(), x => x.RowId.ToString()]);
         
         // 初始化 Panel Tabs
         PanelTabs =
@@ -80,9 +80,9 @@ public unsafe class QuickChatPanel : DailyModuleBase
             new SpecialIconCharTab(this)
         ];
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "ChatLog", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "ChatLog", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "ChatLog", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "ChatLog", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "ChatLog", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "ChatLog", OnAddon);
     }
 
     protected override void ConfigUI()
@@ -174,10 +174,10 @@ public unsafe class QuickChatPanel : DailyModuleBase
                     using var id = ImRaii.PushId($"{seNote.Key}");
                     
                     ImGui.AlignTextToFramePadding();
-                    ImGui.Text($"<se.{seNote.Key}>{(seNote.Key < 10 ? "  " : "")}");
+                    ImGui.TextUnformatted($"<se.{seNote.Key}>{(seNote.Key < 10 ? "  " : "")}");
 
                     ImGui.SameLine();
-                    ImGui.Text("——>");
+                    ImGui.TextUnformatted("——>");
 
                     var note = seNote.Value;
                     ImGui.SameLine();
@@ -317,7 +317,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
             using var child = ImRaii.Child($"{(isIndividual ? "Individual" : "Shared")}MacroSelectChild", childSize);
             if (!child) return;
 
-            ImGui.Text(GetLoc($"QuickChatPanel-{(isIndividual ? "Individual" : "Shared")}Macros"));
+            ImGui.TextUnformatted(GetLoc($"QuickChatPanel-{(isIndividual ? "Individual" : "Shared")}Macros"));
             ImGui.Separator();
 
             var span = isIndividual ? module->Individual : module->Shared;
@@ -326,7 +326,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
                 var macro = span.GetPointer(i);
                 if (macro == null) continue;
 
-                var name = macro->Name.ExtractText();
+                var name = macro->Name.ToString();
                 var icon = ImageHelper.GetGameIcon(macro->IconId);
                 if (string.IsNullOrEmpty(name) || icon == null) continue;
 
@@ -356,7 +356,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
                         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-LastUpdateTime")}:");
 
                         ImGui.SameLine();
-                        ImGui.Text($"{ModuleConfig.SavedMacros.Find(x => x.Equals(currentSavedMacro))?.LastUpdateTime}");
+                        ImGui.TextUnformatted($"{ModuleConfig.SavedMacros.Find(x => x.Equals(currentSavedMacro))?.LastUpdateTime}");
 
                         ImGui.Separator();
 
@@ -377,7 +377,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
 
     protected override void OverlayPreDraw()
     {
-        if (DService.ObjectTable.LocalPlayer == null ||
+        if (DService.Instance().ObjectTable.LocalPlayer == null ||
             ChatLog == null || !ChatLog->IsVisible ||
             ChatLog->GetNodeById(5) == null)
             Overlay.IsOpen = false;
@@ -385,13 +385,13 @@ public unsafe class QuickChatPanel : DailyModuleBase
 
     protected override void OverlayUI()
     {
-        if (DService.KeyState[VirtualKey.ESCAPE])
+        if (DService.Instance().KeyState[VirtualKey.ESCAPE])
         {
             Overlay.IsOpen = false;
             return;
         }
         
-        using var font = FontManager.GetUIFont(ModuleConfig.FontScale).Push();
+        using var font = FontManager.Instance().GetUIFont(ModuleConfig.FontScale).Push();
 
         var itemSpacing = ImGui.GetStyle().ItemSpacing;
         
@@ -412,9 +412,9 @@ public unsafe class QuickChatPanel : DailyModuleBase
                 var inputNode = (AtkComponentNode*)ChatLog->GetNodeById(5);
                 var textNode  = inputNode->Component->UldManager.SearchNodeById(16)->GetAsAtkTextNode();
                 var text      = SeString.Parse(textNode->NodeText);
-                if (!string.IsNullOrWhiteSpace(text.ExtractText()))
+                if (!string.IsNullOrWhiteSpace(text.ToString()))
                 {
-                    ChatManager.SendMessage(text.Encode());
+                    ChatManager.Instance().SendMessage(text.Encode());
 
                     var inputComponent = (AtkComponentTextInput*)inputNode->Component;
                     inputComponent->EvaluatedString.Clear();
@@ -453,7 +453,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
         }
 
         if (ImGui.TabItemButton($"{FontAwesomeIcon.Cog.ToIconString()}###OpenQuickChatPanelSettings"))
-            ChatManager.SendMessage($"/pdr search {GetLoc("QuickChatPanelTitle")}");
+            ChatManager.Instance().SendMessage($"/pdr search {GetLoc("QuickChatPanelTitle")}");
     }
 
     private void OnAddon(AddonEvent type, AddonArgs? args)
@@ -538,7 +538,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);     
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);     
         OnAddon(AddonEvent.PreFinalize, null);
 
         // 恢复
@@ -661,7 +661,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
                         ImGui.SetClipboardText(message);
 
                     if (ImGui.IsItemClicked(ImGuiMouseButton.Right)) 
-                        ChatManager.SendMessage(message);
+                        ChatManager.Instance().SendMessage(message);
 
                     ImGuiOm.TooltipHover(GetLoc("QuickChatPanel-SendMessageHelp"));
 
@@ -793,7 +793,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
                             UIGlobals.PlayChatSoundEffect(seNote.Key);
 
                         if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                            ChatManager.SendMessage($"<se.{seNote.Key}><se.{seNote.Key}>");
+                            ChatManager.Instance().SendMessage($"<se.{seNote.Key}><se.{seNote.Key}>");
 
                         ImGuiOm.TooltipHover(GetLoc("QuickChatPanel-SystemSoundHelp"));
                     }
@@ -836,9 +836,9 @@ public unsafe class QuickChatPanel : DailyModuleBase
                     foreach (var data in Searcher.SearchResult)
                     {
                         if (!LuminaGetter.TryGetRow(data.RowId, out Item itemData)) continue;
-                        if (!DService.Texture.TryGetFromGameIcon(new(itemData.Icon, isConflictKeyHolding), out var texture)) continue;
+                        if (!DService.Instance().Texture.TryGetFromGameIcon(new(itemData.Icon, isConflictKeyHolding), out var texture)) continue;
                         
-                        var itemName = itemData.Name.ExtractText();
+                        var itemName = itemData.Name.ToString();
                         if (itemName.Length > longestText.Length)
                             longestText = itemName;
 
@@ -914,7 +914,7 @@ public static class QuickChatPanelExtensions
     {
         var savedMacro = new QuickChatPanel.SavedMacro
         {
-            Name           = macro.Name.ExtractText(),
+            Name           = macro.Name.ToString(),
             IconID         = macro.IconId,
             LastUpdateTime = DateTime.Now
         };

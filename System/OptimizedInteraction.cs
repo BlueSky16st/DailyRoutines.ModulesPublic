@@ -83,9 +83,9 @@ public unsafe class OptimizedInteraction : DailyModuleBase
     private static readonly HashSet<string> WhitelistObjectNames = 
     [
         // 市场布告板
-        LuminaGetter.GetRow<EObjName>(2000073)!.Value.Singular.ExtractText(),
+        LuminaGetter.GetRow<EObjName>(2000073)!.Value.Singular.ToString(),
         // 简易以太之光
-        LuminaGetter.GetRow<EObjName>(2003395)!.Value.Singular.ExtractText(),
+        LuminaGetter.GetRow<EObjName>(2003395)!.Value.Singular.ToString(),
     ];
 
     private static readonly List<uint> FirstQuest = [65621, 65644, 65645, 65659, 65660, 66104, 66105, 66106];
@@ -159,19 +159,20 @@ public unsafe class OptimizedInteraction : DailyModuleBase
     
     private ulong InteractWithObjectDetour(TargetSystem* system, GameObject* obj, bool checkLOS)
     {
-        if (obj == null || DService.ObjectTable.LocalPlayer is not { } localPlayer) return 0;
+        if (obj == null || DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return 0;
         
         // 咏唱状态
-        MemoryHelper.Write(DService.Condition.Address + 27, false);
+        MemoryHelper.Write(DService.Instance().Condition.Address + 27, false);
         
         // 动画锁
         ActionManager.Instance()->AnimationLock = 0;
         
         // 以太之光
         if (obj->ObjectKind is ObjectKind.Aetheryte &&
-            TryGetNearestEventID(x => x.EventId.ContentId is EventHandlerContent.Aetheryte,
-                                                      x => x.NameString == obj->NameString,
-                                                      localPlayer.Position, out var eventIDAetheryte) &&
+            EventFramework.Instance()->TryGetNearestEventID(x => x.EventId.ContentId is EventHandlerContent.Aetheryte,
+                                                            x => x.NameString == obj->NameString,
+                                                            localPlayer.Position, 
+                                                            out var eventIDAetheryte) &&
             FirstQuest.Any(x => UIState.Instance()->IsUnlockLinkUnlockedOrQuestCompleted(x)))
         {
             DismountAndSend(eventIDAetheryte);
@@ -187,8 +188,10 @@ public unsafe class OptimizedInteraction : DailyModuleBase
                 DismountAndSend(info.EventId.Id);
                 return 1;
             }
-            else if (TryGetNearestEventID(_ => true, x => x.NameString == obj->NameString,
-                                                               localPlayer.Position, out var eventIDWhitelist))
+            else if (EventFramework.Instance()->TryGetNearestEventID(_ => true, 
+                                                                     x => x.NameString == obj->NameString,
+                                                                     localPlayer.Position, 
+                                                                     out var eventIDWhitelist))
             {
                 DismountAndSend(eventIDWhitelist);
                 return 1;
@@ -202,8 +205,8 @@ public unsafe class OptimizedInteraction : DailyModuleBase
             MovementManager.Dismount();
             TaskHelper.Enqueue(() =>
             {
-                if (MovementManager.IsManagerBusy || DService.Condition[ConditionFlag.Mounted] ||
-                    DService.Condition[ConditionFlag.Jumping]) return false;
+                if (MovementManager.IsManagerBusy || DService.Instance().Condition[ConditionFlag.Mounted] ||
+                    DService.Instance().Condition[ConditionFlag.Jumping]) return false;
                 new EventStartPackt(localPlayer.GameObjectID, eventID).Send();
                 return true;
             });

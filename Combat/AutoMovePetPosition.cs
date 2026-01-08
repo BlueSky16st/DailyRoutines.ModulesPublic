@@ -35,20 +35,20 @@ public class AutoMovePetPosition : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper ??= new() { TimeoutMS = 30_000 };
         
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        DService.DutyState.DutyRecommenced    += OnDutyRecommenced;
-        DService.Condition.ConditionChange    += OnConditionChanged;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().DutyState.DutyRecommenced    += OnDutyRecommenced;
+        DService.Instance().Condition.ConditionChange    += OnConditionChanged;
 
         TaskHelper.Enqueue(SchedulePetMovements);
     }
     
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        DService.DutyState.DutyRecommenced    -= OnDutyRecommenced;
-        DService.Condition.ConditionChange    -= OnConditionChanged;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().DutyState.DutyRecommenced    -= OnDutyRecommenced;
+        DService.Instance().Condition.ConditionChange    -= OnConditionChanged;
     }
 
     protected override void ConfigUI()
@@ -87,20 +87,20 @@ public class AutoMovePetPosition : DailyModuleBase
         }
         
         ImGui.TableNextColumn();
-        ImGui.Text(GetLoc("Zone"));
+        ImGui.TextUnformatted(GetLoc("Zone"));
         
         ImGui.TableNextColumn();
-        ImGui.Text(GetLoc("Note"));
+        ImGui.TextUnformatted(GetLoc("Note"));
         
         ImGui.TableNextColumn();
-        ImGui.Text(FontAwesomeIcon.Clock.ToIconString());
+        ImGui.TextUnformatted(FontAwesomeIcon.Clock.ToIconString());
         ImGuiOm.TooltipHover($"{GetLoc("AutoMovePetPosition-Delay")} (s)");
         
         ImGui.TableNextColumn();
-        ImGui.Text(GetLoc("Position"));
+        ImGui.TextUnformatted(GetLoc("Position"));
         
         ImGui.TableNextColumn();
-        ImGui.Text(GetLoc("Operation"));
+        ImGui.TextUnformatted(GetLoc("Operation"));
 
         foreach (var (zoneID, scheduleList) in ModuleConfig.PositionSchedules.ToArray())
         {
@@ -197,7 +197,7 @@ public class AutoMovePetPosition : DailyModuleBase
                 if (ImGuiOm.ButtonIcon("当前坐标", FontAwesomeIcon.Crosshairs,
                                        GetLoc("AutoMovePetPosition-GetCurrent")))
                 {
-                    if (DService.ObjectTable.LocalPlayer is { } localPlayer)
+                    if (DService.Instance().ObjectTable.LocalPlayer is { } localPlayer)
                     {
                         schedule.Position = localPlayer.Position.ToVector2();
                         SaveConfig(ModuleConfig);
@@ -230,7 +230,7 @@ public class AutoMovePetPosition : DailyModuleBase
                     if ((ImGui.IsKeyDown(ImGuiKey.LeftAlt)  || ImGui.IsKeyDown(ImGuiKey.RightAlt)) &&
                         (ImGui.IsKeyDown(ImGuiKey.LeftCtrl) || ImGui.IsKeyDown(ImGuiKey.RightCtrl)))
                     {
-                        if (DService.Gui.ScreenToWorld(ImGui.GetMousePos(), out var worldPos))
+                        if (DService.Instance().Gui.ScreenToWorld(ImGui.GetMousePos(), out var worldPos))
                         {
                             var currentPickingZone  = CurrentPickingRow?.territoryKey ?? 0;
                             var currentPickingIndex = CurrentPickingRow?.index        ?? -1;
@@ -328,17 +328,17 @@ public class AutoMovePetPosition : DailyModuleBase
     {
         if (!CheckIsEightPlayerDuty()) return;
         
-        var zoneID = DService.ClientState.TerritoryType;
+        var zoneID = GameState.TerritoryType;
         if (!ModuleConfig.PositionSchedules.TryGetValue(zoneID, out var schedulesForThisDuty)) return;
 
-        if (DService.ObjectTable.LocalPlayer is { } localPlayer)
+        if (DService.Instance().ObjectTable.LocalPlayer is { } localPlayer)
         {
             if (!ValidJobs.Contains(localPlayer.ClassJob.RowId)) return;
             
             var enabledSchedules     = schedulesForThisDuty.Where(x => x.Enabled).ToList();
             var elapsedTimeInSeconds = (DateTime.Now - BattleStartTime).TotalSeconds;
 
-            if (DService.Condition[ConditionFlag.InCombat])
+            if (DService.Instance().Condition[ConditionFlag.InCombat])
             {
                 var bestSchedule = enabledSchedules
                                    .Where(x => x.DelayS <= elapsedTimeInSeconds)
@@ -366,7 +366,7 @@ public class AutoMovePetPosition : DailyModuleBase
     private unsafe void MovePetToLocation(Vector2 position)
     {
         if (!CheckIsEightPlayerDuty()) return;
-        if (DService.ObjectTable.LocalPlayer is not { } player) return;
+        if (DService.Instance().ObjectTable.LocalPlayer is not { } player) return;
         if (!ValidJobs.Contains(player.ClassJob.RowId)) return;
         
         var pet = CharacterManager.Instance()->LookupPetByOwnerObject(player.ToStruct());
@@ -377,12 +377,12 @@ public class AutoMovePetPosition : DailyModuleBase
         if (MovementManager.TryDetectGroundDownwards(position.ToVector3(groundY + 5f), out var groundPos) ?? false)
             location = groundPos.Point;
 
-        TaskHelper.Enqueue(() => ExecuteCommandManager.ExecuteCommandComplexLocation(ExecuteCommandComplexFlag.PetAction, location, 3));
+        TaskHelper.Enqueue(() => ExecuteCommandManager.Instance().ExecuteCommandComplexLocation(ExecuteCommandComplexFlag.PetAction, location, 3));
     }
 
     private static bool CheckIsEightPlayerDuty()
     {
-        var zoneID = DService.ClientState.TerritoryType;
+        var zoneID = GameState.TerritoryType;
         if (zoneID == 0) return false;
         
         var zoneData = LuminaGetter.GetRow<TerritoryType>(zoneID);

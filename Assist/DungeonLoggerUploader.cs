@@ -42,8 +42,8 @@ public class DungeonLoggerUploader : DailyModuleBase
         Cookies            = new();
         HttpClientInstance = HttpClientHelper.Get(new HttpClientHandler { CookieContainer = Cookies }, "DungeonLoggerUploader-Client");
 
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        DService.DutyState.DutyCompleted      += OnDutyCompleted;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().DutyState.DutyCompleted      += OnDutyCompleted;
 
         if (!string.IsNullOrEmpty(ModuleConfig.Username) && !string.IsNullOrEmpty(ModuleConfig.Password))
             Task.Run(() => LoginAsync());
@@ -115,8 +115,8 @@ public class DungeonLoggerUploader : DailyModuleBase
         }
         
         InDungeon   = true;
-        DungeonName = contentFinderCondition.Value.Name.ExtractText();
-        JobName     = LocalPlayerState.ClassJobData.Name.ExtractText();
+        DungeonName = contentFinderCondition.Value.Name.ToString();
+        JobName     = LocalPlayerState.ClassJobData.Name.ToString();
 
         if (ModuleConfig.SendChat)
             Chat("已进入 “随机任务：指导者” 任务, 完成后将自动上传记录至网站");
@@ -240,8 +240,8 @@ public class DungeonLoggerUploader : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        DService.DutyState.DutyCompleted      -= OnDutyCompleted;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().DutyState.DutyCompleted      -= OnDutyCompleted;
 
         HttpClientInstance = null;
         Cookies            = null;

@@ -59,7 +59,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig =   LoadConfig<Config>() ?? new();
-        TaskHelper   ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper   ??= new() { TimeoutMS = 5_000 };
 
         MoneyButton = [-ModuleConfig.Step2, -ModuleConfig.Step1, ModuleConfig.Step1, ModuleConfig.Step2];
 
@@ -69,7 +69,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
         TradeStatusUpdateHook = TradeStatusUpdateSig.GetHook<TradeStatusUpdateDelegate>(TradeStatusDetour);
         TradeStatusUpdateHook.Enable();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Trade", OnTrade);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Trade", OnTrade);
 
         SelectPlayerTimer         ??= new(1_000) { AutoReset = true };
         SelectPlayerTimer.Elapsed +=  AutoRequestTradeTick;
@@ -97,7 +97,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
         SelectPlayerTimer?.Dispose();
         SelectPlayerTimer = null;
 
-        DService.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "Trade", OnTrade);
+        DService.Instance().AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "Trade", OnTrade);
     }
 
     #region UI
@@ -108,7 +108,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Settings")}:");
 
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("AutoSendMoney-Step", 1)}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-Step", 1)}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(50f * GlobalFontScale);
@@ -120,7 +120,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
         }
 
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("AutoSendMoney-Step", 2)}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-Step", 2)}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
@@ -132,7 +132,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
         }
 
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("AutoSendMoney-DelayLowerLimit")}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-DelayLowerLimit")}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
@@ -141,7 +141,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
             SaveConfig(ModuleConfig);
 
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("AutoSendMoney-DelayUpperLimit")}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-DelayUpperLimit")}:");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
@@ -189,7 +189,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
         }
 
         ImGui.SameLine();
-        ImGui.Text(GetLoc("All"));
+        ImGui.TextUnformatted(GetLoc("All"));
 
         using var disabled = ImRaii.Disabled(IsRunning);
 
@@ -248,18 +248,18 @@ public unsafe class AutoSendMoney : DailyModuleBase
         if (p.GroupIndex >= 0)
         {
             ImGui.SameLine();
-            ImGui.Text($"{(char)('A' + p.GroupIndex)}-");
+            ImGui.TextUnformatted($"{(char)('A' + p.GroupIndex)}-");
         }
 
         ImGui.SameLine();
-        ImGui.Text(p.FullName);
+        ImGui.TextUnformatted(p.FullName);
 
         ImGui.SameLine(NameLength + 60);
         if (!hasPlan)
             return;
 
         if (IsRunning)
-            ImGui.Text(GetLoc("AutoSendMoney-Count", TradePlan.GetValueOrDefault(p.EntityID, 0)));
+            ImGui.TextUnformatted(GetLoc("AutoSendMoney-Count", TradePlan.GetValueOrDefault(p.EntityID, 0)));
         else
         {
             ImGui.SetNextItemWidth(80f * GlobalFontScale);
@@ -364,14 +364,14 @@ public unsafe class AutoSendMoney : DailyModuleBase
             return;
         }*/
 
-        MemberList.Add(new() { EntityID = entityID, FirstName = fullName, World = world.Name.ExtractText(), GroupIndex = groupIndex });
+        MemberList.Add(new() { EntityID = entityID, FirstName = fullName, World = world.Name.ToString(), GroupIndex = groupIndex });
     }
 
     private static void AddTargetPlayer()
     {
         var target = TargetSystem.Instance()->GetTargetObject();
         if (target is not null &&
-            DService.ObjectTable.SearchByEntityID(target->EntityId) is ICharacter { ObjectKind: ObjectKind.Player } player)
+            DService.Instance().ObjectTable.SearchByEntityID(target->EntityId) is ICharacter { ObjectKind: ObjectKind.Player } player)
         {
             if (MemberList.Any(p => p.EntityID == player.EntityID))
                 return;
@@ -528,7 +528,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
 
         if (LastTradeEntityID != 0 && TradePlan.ContainsKey(LastTradeEntityID))
         {
-            var target = DService.ObjectTable.SearchByEntityID(LastTradeEntityID);
+            var target = DService.Instance().ObjectTable.SearchByEntityID(LastTradeEntityID);
             if (target is null || !IsDistanceEnough(target.Position))
                 return;
 
@@ -537,7 +537,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
 
         TradePlan.Keys.ToList().ForEach(entityID =>
         {
-            var target = DService.ObjectTable.SearchByEntityID(entityID);
+            var target = DService.Instance().ObjectTable.SearchByEntityID(entityID);
             if (target is null || !IsDistanceEnough(target.Position))
                 return;
 
@@ -548,7 +548,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
 
     private static bool IsDistanceEnough(Vector3 pos2)
     {
-        var pos = DService.ObjectTable.LocalPlayer.Position;
+        var pos = DService.Instance().ObjectTable.LocalPlayer.Position;
         return Math.Pow(pos.X - pos2.X, 2) + Math.Pow(pos.Z - pos2.Z, 2) < 16;
     }
 
@@ -563,7 +563,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
     {
         var unitBase = GetAddonByName("Trade");
         if (unitBase is not null)
-            Callback(unitBase, true, 1, 0);
+            unitBase->Callback(1, 0);
     }
 
     /// <summary>
@@ -573,14 +573,14 @@ public unsafe class AutoSendMoney : DailyModuleBase
     {
         var unitBase = GetAddonByName("Trade");
         if (unitBase is not null)
-            Callback(unitBase, true, 0, 0);
+            unitBase->Callback(0, 0);
     }
 
     private static void AddonTradeFinalCheck(bool confirm = true)
     {
         var unitBase = SelectYesno;
         if (unitBase is not null)
-            Callback(unitBase, true, confirm ? 0 : 1);
+            unitBase->Callback(confirm ? 0 : 1);
     }
 
     #endregion
@@ -670,7 +670,7 @@ public unsafe class AutoSendMoney : DailyModuleBase
             FirstName = gameObject.Name.TextValue;
             
             var worldID = ((Character*)gameObject.Address)->HomeWorld;
-            World = LuminaGetter.GetRow<World>(worldID)?.Name.ExtractText() ?? "???";
+            World = LuminaGetter.GetRow<World>(worldID)?.Name.ToString() ?? "???";
         }
 
         public string FullName => 

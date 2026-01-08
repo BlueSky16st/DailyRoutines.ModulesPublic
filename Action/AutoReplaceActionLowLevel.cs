@@ -4,6 +4,7 @@ using Dalamud.Hooking;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using Lumina.Excel.Sheets;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -57,20 +58,20 @@ public unsafe class AutoReplaceActionLowLevel : DailyModuleBase
             var action1Data = LuminaGetter.GetRow<Action>(action1);
             if (action0Data == null || action1Data == null) continue;
 
-            var action0Icon = DService.Texture.GetFromGameIcon(new(action0Data.Value.Icon)).GetWrapOrDefault();
-            var action1Icon = DService.Texture.GetFromGameIcon(new(action1Data.Value.Icon)).GetWrapOrDefault();
+            var action0Icon = DService.Instance().Texture.GetFromGameIcon(new(action0Data.Value.Icon)).GetWrapOrDefault();
+            var action1Icon = DService.Instance().Texture.GetFromGameIcon(new(action1Data.Value.Icon)).GetWrapOrDefault();
             if (action0Icon == null || action1Icon == null) continue;
 
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGuiOm.TextImage(action0Data.Value.Name.ExtractText(), action0Icon.Handle, new(ImGui.GetTextLineHeightWithSpacing()));
+            ImGuiOm.TextImage(action0Data.Value.Name.ToString(), action0Icon.Handle, new(ImGui.GetTextLineHeightWithSpacing()));
 
             ImGui.TableNextColumn();
             ImGui.AlignTextToFramePadding();
-            ImGui.Text("→");
+            ImGui.TextUnformatted("→");
 
             ImGui.TableNextColumn();
-            ImGuiOm.TextImage(action1Data.Value.Name.ExtractText(), action1Icon.Handle, new(ImGui.GetTextLineHeightWithSpacing()));
+            ImGuiOm.TextImage(action1Data.Value.Name.ToString(), action1Icon.Handle, new(ImGui.GetTextLineHeightWithSpacing()));
         }
     }
 
@@ -84,10 +85,10 @@ public unsafe class AutoReplaceActionLowLevel : DailyModuleBase
         while (true)
         {
             adjustedActionID = 0;
-            if (IsActionUnlocked(actionID)) return false;
+            if (ActionManager.IsActionUnlocked(actionID)) return false;
             if (!ActionReplacements.TryGetValue(actionID, out var info)) return false;
 
-            if (IsActionUnlocked(info))
+            if (ActionManager.IsActionUnlocked(info))
             {
                 adjustedActionID = info;
                 return true;

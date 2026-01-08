@@ -29,14 +29,14 @@ public unsafe class AutoAetherialReduction : DailyModuleBase
         TaskHelper ??= new();
         Overlay    ??= new Overlay(this);
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,   "PurifyItemSelector", OnAddonList);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "PurifyItemSelector", OnAddonList);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,   "PurifyItemSelector", OnAddonList);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "PurifyItemSelector", OnAddonList);
 
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonList);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonList);
         ClearNodes();
     }
 
@@ -48,7 +48,7 @@ public unsafe class AutoAetherialReduction : DailyModuleBase
         return true;
     }
     
-    private bool? StartAetherialReduction()
+    private bool StartAetherialReduction()
     {
         if (IsCurrentEnvironmentInvalid()) return true;
         
@@ -146,9 +146,8 @@ public unsafe class AutoAetherialReduction : DailyModuleBase
     
     private bool IsCurrentEnvironmentInvalid()
     {
-        if (IsInventoryFull(PlayerInventories)        ||
-            DService.Condition[ConditionFlag.Mounted] ||
-            DService.Condition[ConditionFlag.InCombat])
+        if (PlayerInventories.IsFull() ||
+            DService.Instance().Condition.Any(ConditionFlag.Mounted, ConditionFlag.InCombat))
         {
             TaskHelper.Abort();
             return true;

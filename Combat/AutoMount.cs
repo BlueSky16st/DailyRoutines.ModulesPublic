@@ -31,10 +31,10 @@ public unsafe class AutoMount : DailyModuleBase
         MountSelectCombo.SelectedMountID = ModuleConfig.SelectedMount;
         ZoneSelectCombo.SelectedZoneIDs  = ModuleConfig.BlacklistZones;
 
-        TaskHelper ??= new TaskHelper { TimeLimitMS = 20000 };
+        TaskHelper ??= new TaskHelper { TimeoutMS = 20000 };
 
-        DService.Condition.ConditionChange += OnConditionChanged;
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().Condition.ConditionChange += OnConditionChanged;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
     }
 
     protected override void ConfigUI()
@@ -110,8 +110,11 @@ public unsafe class AutoMount : DailyModuleBase
 
     private void OnZoneChanged(ushort zone)
     {
-        if (!ModuleConfig.MountWhenZoneChange || zone == 0 || ModuleConfig.BlacklistZones.Contains(zone)) return;
-        if (!CanUseMountCurrentZone(zone)) return;
+        if (!ModuleConfig.MountWhenZoneChange                             ||
+            GameState.TerritoryType == 0                                  ||
+            ModuleConfig.BlacklistZones.Contains(GameState.TerritoryType) ||
+            !CanUseMountCurrentZone())
+            return;
 
         TaskHelper.Abort();
         TaskHelper.Enqueue(UseMount);
@@ -119,11 +122,11 @@ public unsafe class AutoMount : DailyModuleBase
 
     private void OnConditionChanged(ConditionFlag flag, bool value)
     {
-        if (ModuleConfig.BlacklistZones.Contains(DService.ClientState.TerritoryType)) return;
+        if (ModuleConfig.BlacklistZones.Contains(GameState.TerritoryType)) return;
         switch (flag)
         {
             case ConditionFlag.Gathering when !value && ModuleConfig.MountWhenGatherEnd:
-            case ConditionFlag.InCombat when !value && ModuleConfig.MountWhenCombatEnd && !DService.ClientState.IsPvP &&
+            case ConditionFlag.InCombat when !value && ModuleConfig.MountWhenCombatEnd && !DService.Instance().ClientState.IsPvP &&
                                              (FateManager.Instance()->CurrentFate == null ||
                                               FateManager.Instance()->CurrentFate->Progress == 100):
                 if (!CanUseMountCurrentZone()) return;
@@ -135,7 +138,7 @@ public unsafe class AutoMount : DailyModuleBase
         }
     }
 
-    private bool? UseMount()
+    private bool UseMount()
     {
         if (!Throttler.Throttle("AutoMount-UseMount")) return false;
         if (BetweenAreas) return false;
@@ -149,25 +152,18 @@ public unsafe class AutoMount : DailyModuleBase
 
         TaskHelper.DelayNext(100);
         TaskHelper.Enqueue(() => ModuleConfig.SelectedMount == 0
-                                     ? UseActionManager.UseAction(ActionType.GeneralAction, 9)
-                                     : UseActionManager.UseAction(ActionType.Mount, ModuleConfig.SelectedMount));
+                                     ? UseActionManager.Instance().UseAction(ActionType.GeneralAction, 9)
+                                     : UseActionManager.Instance().UseAction(ActionType.Mount,         ModuleConfig.SelectedMount));
         return true;
     }
 
-    private static bool CanUseMountCurrentZone(ushort zone = 0)
-    {
-        if (zone == 0) 
-            zone = DService.ClientState.TerritoryType;
-        if (zone == 0) return false;
-
-        var zoneData = LuminaGetter.GetRow<TerritoryType>(zone);
-        return zoneData is { Mount: true };
-    }
+    private static bool CanUseMountCurrentZone() => 
+        GameState.TerritoryTypeData is { Mount: true };
 
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        DService.Condition.ConditionChange -= OnConditionChanged;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().Condition.ConditionChange -= OnConditionChanged;
     }
 
     private class Config : ModuleConfiguration

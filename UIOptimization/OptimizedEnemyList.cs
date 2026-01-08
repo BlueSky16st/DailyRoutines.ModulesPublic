@@ -46,9 +46,9 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
         AgentHudUpdateEnemyListHook ??= AgentHudUpdateEnemyListSig.GetHook<AgentHudUpdateEnemyListDelegate>(AgentHudUpdateEnemyListDetour);
         AgentHudUpdateEnemyListHook.Enable();
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,          "_EnemyList", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreRequestedUpdate, "_EnemyList", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,           "_EnemyList", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,          "_EnemyList", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRequestedUpdate, "_EnemyList", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,           "_EnemyList", OnAddon);
     }
 
     protected override void ConfigUI()
@@ -88,7 +88,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
             ModuleConfig.TextColor = ImGuiComponents.ColorPickerWithPalette(0, "###TextColorInput", ModuleConfig.TextColor);
             
             ImGui.SameLine();
-            ImGui.Text($"{GetLoc("Color")}");
+            ImGui.TextUnformatted($"{GetLoc("Color")}");
             
             ImGui.SameLine(0, 4f * GlobalFontScale);
             ImGui.TextDisabled("|");
@@ -97,7 +97,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
             ModuleConfig.EdgeColor = ImGuiComponents.ColorPickerWithPalette(1, "###EdgeColorInput", ModuleConfig.EdgeColor);
             
             ImGui.SameLine();
-            ImGui.Text($"{GetLoc("EdgeColor")}");
+            ImGui.TextUnformatted($"{GetLoc("EdgeColor")}");
 
             ImGui.SameLine(0, 4f * GlobalFontScale);
             ImGui.TextDisabled("|");
@@ -106,7 +106,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
             ModuleConfig.BackgroundNodeColor = ImGuiComponents.ColorPickerWithPalette(2, "###BackgroundColorInput", ModuleConfig.BackgroundNodeColor);
             
             ImGui.SameLine();
-            ImGui.Text($"{GetLoc("BackgroundColor")}");
+            ImGui.TextUnformatted($"{GetLoc("BackgroundColor")}");
             
             ImGui.SameLine(0, 4f * GlobalFontScale);
             ImGui.TextDisabled("|");
@@ -194,7 +194,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
                 }
                 
                 ImGui.SameLine();
-                ImGui.Text($"{counter}. {blacklist}");
+                ImGui.TextUnformatted($"{counter}. {blacklist}");
 
                 counter++;
             }
@@ -254,7 +254,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
             var backgroundNode = nodes[i].BackgroundNode;
             var castBarNode    = nodes[i].CastBarNode;
             
-            var gameObj = DService.ObjectTable.SearchByID(gameObjectID);
+            var gameObj = DService.Instance().ObjectTable.SearchByID(gameObjectID);
             if (gameObj is not IBattleChara bc || !HaterInfo.TryGetValue(gameObj.EntityID, out var enmity))
             {
                 textNode.SeString        = string.Empty;
@@ -306,7 +306,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
                 castBarNode.Progress  = 0f;
             }
 
-            var targetName = SanitizeSeIcon(targetNameTextNode->NodeText.ExtractText());
+            var targetName = targetNameTextNode->NodeText.ToString().SanitizeSEIcon();
             
             textNode.TextColor = ModuleConfig.UseCustomizeTextColor
                                       ? ModuleConfig.TextColor
@@ -477,7 +477,7 @@ public unsafe class OptimizedEnemyList : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
         ClearTextNodes();
         

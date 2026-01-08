@@ -8,8 +8,10 @@ using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Interface.Colors;
 using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using OmenTools.Extensions;
 using ObjectKind = Dalamud.Game.ClientState.Objects.Enums.ObjectKind;
 using ValueType = FFXIVClientStructs.FFXIV.Component.GUI.ValueType;
 
@@ -29,14 +31,14 @@ public unsafe class AutoFCWSDeliver : DailyModuleBase
     
     protected override void Init()
     {
-        TaskHelper ??= new TaskHelper { TimeLimitMS = 30_000 };
+        TaskHelper ??= new TaskHelper { TimeoutMS = 30_000 };
         Overlay    ??= new Overlay(this);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SelectYesno",        OnAddonYesno);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SelectString",       OnAddonString);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SubmarinePartsMenu", OnAddonMenu);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SubmarinePartsMenu", OnAddonMenu);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "CompanyCraftRecipeNoteBook", OnAddonRecipeNote);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SelectYesno",        OnAddonYesno);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SelectString",       OnAddonString);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SubmarinePartsMenu", OnAddonMenu);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SubmarinePartsMenu", OnAddonMenu);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "CompanyCraftRecipeNoteBook", OnAddonRecipeNote);
         
         if (SubmarinePartsMenu != null) 
             OnAddonMenu(AddonEvent.PostSetup, null);
@@ -72,11 +74,11 @@ public unsafe class AutoFCWSDeliver : DailyModuleBase
             TaskHelper.Abort();
     }
 
-    private bool? EnqueueSubmit()
+    private bool EnqueueSubmit()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
-        if (!IsAddonAndNodesReady(SubmarinePartsMenu)) return false;
-        if (IsAddonAndNodesReady(Request)) return false;
+        if (!SubmarinePartsMenu->IsAddonAndNodesReady()) return false;
+        if (Request->IsAddonAndNodesReady()) return false;
 
         TaskHelper.Abort();
         
@@ -90,16 +92,16 @@ public unsafe class AutoFCWSDeliver : DailyModuleBase
                                    if (InterruptByConflictKey(TaskHelper, this)) return;
                                    var atkValue = new AtkValue()
                                    {
-                                       Type = (ValueType)(item.ItemID % 500000), 
+                                       Type  = (ValueType)(item.ItemID % 500000), 
                                        Int64 = SetHighDword((int)item.ItemCount)
                                    };
-                                   SendEvent(AgentId.CompanyCraftMaterial, 0, 0, item.Index, item.ItemCount, atkValue);
+                                   AgentId.CompanyCraftMaterial.SendEvent(0, 0, item.Index, item.ItemCount, atkValue);
                                }, $"交纳物品 {item.ItemID}x{item.ItemCount}");
             TaskHelper.DelayNext(5_00, "等待 Request");
             TaskHelper.Enqueue(() =>
             {
                 if (InterruptByConflictKey(TaskHelper, this)) return true;
-                return !IsAddonAndNodesReady(Request) && !IsAddonAndNodesReady(SelectYesno);
+                return !Request->IsAddonAndNodesReady() && !SelectYesno->IsAddonAndNodesReady();
             }, "等待材料上交界面消失");
             break;
         }
@@ -132,7 +134,7 @@ public unsafe class AutoFCWSDeliver : DailyModuleBase
         var addon = SelectYesno;
         if (addon == null) return;
 
-        var text = addon->AtkValues[0].String.ExtractText();
+        var text = addon->AtkValues[0].String.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
 
         if (InterruptByConflictKey(TaskHelper, this)) return;
@@ -150,25 +152,25 @@ public unsafe class AutoFCWSDeliver : DailyModuleBase
         if (TargetManager.Target is not { ObjectKind: ObjectKind.EventObj, DataID: 2011588 }) return;
         if (InterruptByConflictKey(TaskHelper, this)) return;
         
-        TaskHelper.RemoveAllTasks(0);
+        TaskHelper.RemoveQueueTasks(0);
 
         ClickSelectString(0);
         
         TaskHelper.Enqueue(() =>
         {
             if (InterruptByConflictKey(TaskHelper, this)) return true;
-            if (DService.UIBuilder.CutsceneActive || !IsScreenReady()) return false;
+            if (DService.Instance().UIBuilder.CutsceneActive || !UIModule.IsScreenReady()) return false;
             if (TargetManager.Target is not { ObjectKind: ObjectKind.EventObj, DataID: 2011588 })
             {
                 var target =
-                    DService.ObjectTable.FindNearest(DService.ObjectTable.LocalPlayer.Position,
-                        x => x is { ObjectKind: ObjectKind.EventObj, DataID: 2011588 });
+                    DService.Instance().ObjectTable.FindNearest(DService.Instance().ObjectTable.LocalPlayer.Position,
+                                                     x => x is { ObjectKind: ObjectKind.EventObj, DataID: 2011588 });
                 TargetManager.Target = target;
             }
 
             TargetManager.Target.Interact();
-            return IsAddonAndNodesReady(SubmarinePartsMenu) || IsAddonAndNodesReady(SelectString);
-        }, "尝试再次交互合建设备", null, null, 1);
+            return SubmarinePartsMenu->IsAddonAndNodesReady() || SelectString->IsAddonAndNodesReady();
+        }, "尝试再次交互合建设备", weight: 1);
     }
     
     private void OnAddonRecipeNote(AddonEvent type, AddonArgs args) => TaskHelper.Abort();
@@ -177,10 +179,10 @@ public unsafe class AutoFCWSDeliver : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonRecipeNote);
-        DService.AddonLifecycle.UnregisterListener(OnAddonYesno);
-        DService.AddonLifecycle.UnregisterListener(OnAddonString);
-        DService.AddonLifecycle.UnregisterListener(OnAddonMenu);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonRecipeNote);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonYesno);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonString);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonMenu);
     }
 
     private record WorkshopCraftItem(uint ItemID, uint ItemCount, uint Index)

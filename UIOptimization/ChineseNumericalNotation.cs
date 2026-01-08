@@ -1,9 +1,11 @@
-﻿using System.Linq;
-using DailyRoutines.Abstracts;
+﻿using DailyRoutines.Abstracts;
 using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Hooking;
+using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using InteropGenerator.Runtime;
 using Lumina.Excel.Sheets;
 
 namespace DailyRoutines.ModulesPublic;
@@ -31,13 +33,13 @@ public unsafe class ChineseNumericalNotation : DailyModuleBase
             0x90, 0x90, 0x90, 0x90
         ]);
     
-    private static readonly CompSig FormatNumberSig = new("E8 ?? ?? ?? ?? 44 3B F7");
-    private delegate Utf8String* FormatNumberDelegate(ref Utf8String* outNumberString, int number, int baseNumber, int mode, char* seperator);
-    private static Hook<FormatNumberDelegate>? FormatNumberHook;
+    private static readonly CompSig                     FormatNumberSig = new("E8 ?? ?? ?? ?? 44 3B F7");
+    private delegate        Utf8String*                 FormatNumberDelegate(Utf8String* outNumberString, int number, int baseNumber, int mode, void* seperator);
+    private static          Hook<FormatNumberDelegate>? FormatNumberHook;
 
     private static readonly CompSig AtkCounterNodeSetNumberSig =
         new("40 53 48 83 EC ?? 48 8B C2 48 8B D9 48 85 C0");
-    private delegate void AtkCounterNodeSetNumberDelegate(AtkCounterNode* node, byte* number);
+    private delegate void AtkCounterNodeSetNumberDelegate(AtkCounterNode* node, CStringPointer number);
     private static Hook<AtkCounterNodeSetNumberDelegate>? AtkCounterNodeSetNumberHook;
 
     private static Config ModuleConfig = null!;
@@ -76,11 +78,11 @@ public unsafe class ChineseNumericalNotation : DailyModuleBase
                         return;
                     }
 
-                    ImGui.ColorButton("###ColorButtonMinus", UIColorToVector4Color(minusColorRow.Dark));
+                    ImGui.ColorButton("###ColorButtonMinus", minusColorRow.ToVector4());
 
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(200f * GlobalFontScale);
-                    if (ImGui.InputUInt(GetLoc("ChineseNumericalNotation-ColorMinus"), ref ModuleConfig.ColorMinus, 1, 1))
+                    if (ImGui.InputUShort(GetLoc("ChineseNumericalNotation-ColorMinus"), ref ModuleConfig.ColorMinus, 1, 1))
                         SaveConfig(ModuleConfig);
                 }
                 
@@ -97,11 +99,11 @@ public unsafe class ChineseNumericalNotation : DailyModuleBase
                         return;
                     }
 
-                    ImGui.ColorButton("###ColorButtonUnit", UIColorToVector4Color(unitColorRow.Dark));
+                    ImGui.ColorButton("###ColorButtonUnit", unitColorRow.ToVector4());
 
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(200f * GlobalFontScale);
-                    if (ImGui.InputUInt(GetLoc("ChineseNumericalNotation-ColorUnit"), ref ModuleConfig.ColorUnit, 1, 1))
+                    if (ImGui.InputUShort(GetLoc("ChineseNumericalNotation-ColorUnit"), ref ModuleConfig.ColorUnit, 1, 1))
                         SaveConfig(ModuleConfig);
                 }
 
@@ -127,10 +129,10 @@ public unsafe class ChineseNumericalNotation : DailyModuleBase
 
                             using (ImRaii.Group())
                             {
-                                ImGui.ColorButton($"###ColorButtonTable{row.RowId}", UIColorToVector4Color(row.Dark));
+                                ImGui.ColorButton($"###ColorButtonTable{row.RowId}", row.ToVector4());
                                         
                                 ImGui.SameLine();
-                                ImGui.Text($"{row.RowId}");
+                                ImGui.TextUnformatted($"{row.RowId}");
                             }
                         }
                     }
@@ -142,9 +144,9 @@ public unsafe class ChineseNumericalNotation : DailyModuleBase
     protected override void Uninit() => 
         AtkTextNodeSetNumberCommaPatch.Dispose();
 
-    private static Utf8String* FormatNumberDetour(ref Utf8String* outNumberString, int number, int baseNumber, int mode, char* seperator)
+    private static Utf8String* FormatNumberDetour(Utf8String* outNumberString, int number, int baseNumber, int mode, void* seperator)
     {
-        var ret = FormatNumberHook.Original(ref outNumberString, number, baseNumber, mode, seperator);
+        var ret = FormatNumberHook.Original(outNumberString, number, baseNumber, mode, seperator);
         
         if (baseNumber % 10 == 0)
         {
@@ -152,45 +154,53 @@ public unsafe class ChineseNumericalNotation : DailyModuleBase
             {
                 // 千分位分隔
                 case 1:
-                    var minusColor = ModuleConfig.ColoringUnit ? (int)ModuleConfig.ColorMinus : -1;
-                    var unitColor = ModuleConfig.ColoringUnit ? (int)ModuleConfig.ColorUnit : -1;
+                {
+                    var minusColor = ModuleConfig.ColoringUnit ? ModuleConfig.ColorMinus : (ushort?)null;
+                    var unitColor  = ModuleConfig.ColoringUnit ? ModuleConfig.ColorUnit : (ushort?)null;
 
                     var formatted = !ModuleConfig.NoChineseUnit
-                                        ? FormatUtf8NumberByChineseNotation(number, Lang.CurrentLanguage, minusColor,
-                                                                        unitColor)
-                                        : FormatUtf8NumberByTenThousand(number);
-                    outNumberString = formatted;
+                                        ? number.ToChineseSeString(minusColor, unitColor)
+                                        : number.ToMyriadString();
+
+                    outNumberString->SetString(formatted.ToDalamudString().EncodeWithNullTerminator());
                     return outNumberString;
+                }
                 case 2 or 3 or 4 or 5:
                     break;
                 // 纯数字
                 default:
-                    var formattedByTenThousand = FormatUtf8NumberByTenThousand(number);
-                    outNumberString = formattedByTenThousand;
+                {
+                    var formatted = number.ToMyriadString();
+                    
+                    outNumberString->SetString(new SeString(new TextPayload(formatted)).EncodeWithNullTerminator());
                     return outNumberString;
+                }
             }
         }
 
         return ret;
     }
 
-    private static void AtkCounterNodeSetNumberDetour(AtkCounterNode* node, byte* number)
+    private static void AtkCounterNodeSetNumberDetour(AtkCounterNode* node, CStringPointer number)
     {
-        if (!ModuleConfig.NoChineseUnit && number != null && SeString.Parse(number).TextValue.Any(IsChineseCharacter))
+        if (!ModuleConfig.NoChineseUnit           &&
+            number.HasValue                       &&
+            number.ExtractText() is var textValue &&
+            textValue.IsAnyChinese())
         {
-            node->NodeText = *FormatUtf8NumberByTenThousand(ParseFormattedChineseNumber(SeString.Parse(number).TextValue));
+            node->SetText(textValue.FromChineseString<int>().ToMyriadString());
             node->UpdateWidth();
             return;
         }
-        
+
         AtkCounterNodeSetNumberHook.Original(node, number);
     }
 
     private class Config : ModuleConfiguration
     {
-        public bool NoChineseUnit;
-        public bool ColoringUnit;
-        public uint ColorUnit  = 25;
-        public uint ColorMinus = 17;
+        public bool   NoChineseUnit;
+        public bool   ColoringUnit;
+        public ushort ColorUnit  = 25;
+        public ushort ColorMinus = 17;
     }
 }

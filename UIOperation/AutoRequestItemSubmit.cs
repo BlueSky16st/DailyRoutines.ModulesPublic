@@ -31,9 +31,9 @@ public unsafe class AutoRequestItemSubmit : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Request", OnAddonRequest);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "Request", OnAddonRequest);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Request", OnAddonRequest);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Request", OnAddonRequest);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "Request", OnAddonRequest);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Request", OnAddonRequest);
     }
 
     protected override void ConfigUI()
@@ -49,13 +49,13 @@ public unsafe class AutoRequestItemSubmit : DailyModuleBase
         switch (type)
         {
             case AddonEvent.PostSetup:
-                DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonSelectYesno);
+                DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonSelectYesno);
                 break;
             case AddonEvent.PostDraw:
                 OperateOnRequest();
                 break;
             case AddonEvent.PreFinalize:
-                DService.AddonLifecycle.UnregisterListener(OnAddonSelectYesno);
+                DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSelectYesno);
                 break;
         }
     }
@@ -64,7 +64,7 @@ public unsafe class AutoRequestItemSubmit : DailyModuleBase
     {
         if (!ModuleConfig.IsSubmitHQItem) return;
 
-        var text = ((AddonSelectYesno*)SelectYesno)->PromptText->NodeText.ExtractText();
+        var text = ((AddonSelectYesno*)SelectYesno)->PromptText->NodeText.ToString();
         if (!HQItemTexts.Contains(text)) return;
         
         ClickSelectYesnoYes();
@@ -80,7 +80,7 @@ public unsafe class AutoRequestItemSubmit : DailyModuleBase
         
         if (addon->HandOverButton->IsEnabled)
         {
-            addon->HandOverButton->ClickAddonButton(Request);
+            addon->HandOverButton->Click();
             return;
         }
         
@@ -101,24 +101,24 @@ public unsafe class AutoRequestItemSubmit : DailyModuleBase
             if (slotState->ItemId == itemRequest.ItemId) continue;
 
             // 数据没好, 先请求加载
-            if (!IsAddonAndNodesReady(ContextIconMenu))
+            if (!ContextIconMenu->IsAddonAndNodesReady())
             {
-                SendEvent(AgentId.NpcTrade, 0, 2, i, 0, 0);
+                AgentId.NpcTrade.SendEvent(0, 2, i, 0, 0);
                 return;
             }
             
             var firstItem = agent->SelectedTurnInSlotItemOptionValues[0].Value;
             if (firstItem == null || firstItem->ItemId == 0) return;
             
-            SendEvent(AgentId.NpcTrade, 1, 0, 0, firstItem->GetItemId(), 0U, 0);
+            AgentId.NpcTrade.SendEvent(1, 0, 0, firstItem->GetItemId(), 0U, 0);
             return;
         }
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonRequest);
-        DService.AddonLifecycle.UnregisterListener(OnAddonSelectYesno);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonRequest);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSelectYesno);
     }
 
     private class Config : ModuleConfiguration

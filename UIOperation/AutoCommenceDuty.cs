@@ -17,21 +17,21 @@ public class AutoCommenceDuty : DailyModuleBase
 
     protected override void Init()
     {
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "ContentsFinderConfirm", OnAddonSetup);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreDraw,   "ContentsFinderConfirm", OnAddonSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "ContentsFinderConfirm", OnAddonSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreDraw,   "ContentsFinderConfirm", OnAddonSetup);
     }
 
     private static unsafe void OnAddonSetup(AddonEvent type, AddonArgs args)
     {
         if (args.Addon == nint.Zero) return;
         
-        var addon = args.Addon.ToAtkUnitBase();
+        var addon = args.Addon.ToStruct();
         if (addon->AtkValues[7].UInt != 0)
             return;
         
-        ((AddonContentsFinderConfirm*)addon)->CommenceButton->ClickAddonButton(addon);
+        ((AddonContentsFinderConfirm*)addon)->CommenceButton->Click();
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddonSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSetup);
 }

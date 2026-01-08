@@ -23,10 +23,10 @@ public unsafe class AutoMiniCactpot : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "LotteryDaily", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LotteryDaily", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "LotteryDaily", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LotteryDaily", OnAddon);
         if (LotteryDaily != null)
             OnAddon(AddonEvent.PostSetup, null);
     }
@@ -37,10 +37,10 @@ public unsafe class AutoMiniCactpot : DailyModuleBase
         {
             case AddonEvent.PostSetup:
                 TaskHelper.Abort();
-                FrameworkManager.Reg(OnUpdate);
+                FrameworkManager.Instance().Reg(OnUpdate);
                 break;
             case AddonEvent.PreFinalize:
-                FrameworkManager.Unreg(OnUpdate);
+                FrameworkManager.Instance().Unreg(OnUpdate);
                 TaskHelper.Enqueue(() => ClickSelectYesnoYes());
                 break;
         }
@@ -91,7 +91,7 @@ public unsafe class AutoMiniCactpot : DailyModuleBase
             
             // 结束
             case 4:
-                Callback((AtkUnitBase*)addon, true, -1);
+                addon->AtkUnitBase.Callback(-1);
                 addon->Close(true);
                 break;
         }
@@ -102,7 +102,7 @@ public unsafe class AutoMiniCactpot : DailyModuleBase
         var nodeID = addon->GameBoard[i]->AtkComponentButton.AtkComponentBase.OwnerNode->AtkResNode.NodeId;
         if (nodeID is < 30 or > 38) return;
         
-        Callback((AtkUnitBase*)addon, true, 1, (int)(nodeID - 30));
+        addon->AtkUnitBase.Callback(1, (int)(nodeID - 30));
     }
 
     private static void ClickLaneNode(AddonLotteryDaily* addon, int i)
@@ -117,13 +117,13 @@ public unsafe class AutoMiniCactpot : DailyModuleBase
         var ptr = (int*)((nint)addon + 1004);
         *ptr = unkNumber3D4;
 
-        Callback((AtkUnitBase*)addon, true, 2, unkNumber3D4);
+        addon->AtkUnitBase.Callback(2, unkNumber3D4);
     }
     
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
-        FrameworkManager.Unreg(OnUpdate);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
+        FrameworkManager.Instance().Unreg(OnUpdate);
     }
 
     internal sealed class MiniCactpotSolver

@@ -29,16 +29,16 @@ public unsafe class AutoMateriaTransmutation : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 15_000 };
+        TaskHelper ??= new() { TimeoutMS = 15_000 };
         ModuleConfig = LoadConfig<Config>() ?? new();
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "TradeMultiple", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "TradeMultiple", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "TradeMultiple", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "TradeMultiple", OnAddon);
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         OnAddon(AddonEvent.PreFinalize, null);
     }
     
@@ -57,11 +57,11 @@ public unsafe class AutoMateriaTransmutation : DailyModuleBase
                              [
                                  x => () =>
                                  {
-                                     var itemIcon = DService.Texture.GetFromGameIcon(new(x.Icon)).GetWrapOrDefault();
+                                     var itemIcon = DService.Instance().Texture.GetFromGameIcon(new(x.Icon)).GetWrapOrDefault();
                                      if (itemIcon == null) return;
 
                                      if (ImGuiOm.SelectableImageWithText(
-                                             itemIcon.Handle, new(ImGui.GetTextLineHeightWithSpacing()), $"{x.Name.ExtractText()}",
+                                             itemIcon.Handle, new(ImGui.GetTextLineHeightWithSpacing()), $"{x.Name.ToString()}",
                                              ModuleConfig.BlacklistedItems.Contains(x.RowId),
                                              ImGuiSelectableFlags.SpanAllColumns | ImGuiSelectableFlags.DontClosePopups))
                                      {
@@ -74,7 +74,7 @@ public unsafe class AutoMateriaTransmutation : DailyModuleBase
                                  },
                              ],
                              [
-                                 x => x.Name.ExtractText(),
+                                 x => x.Name.ToString(),
                                  x => x.RowId.ToString()
                              ],
                              true))
@@ -199,7 +199,7 @@ public unsafe class AutoMateriaTransmutation : DailyModuleBase
             }
 
             var leftCount = 5 - agent->GetCurrentSelectedMateriaCount();
-            var item = InventoryManager.Instance()->GetInventorySlot(type, slot);
+            var item      = InventoryManager.Instance()->GetInventorySlot(type, slot);
             if (item == null) return false;
 
             agent->AddMateria(type, slot, item->Quantity >= leftCount ? leftCount : (uint)item->Quantity);

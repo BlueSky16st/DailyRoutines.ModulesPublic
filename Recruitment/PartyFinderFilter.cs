@@ -39,11 +39,11 @@ public class PartyFinderFilter : DailyModuleBase
         ModuleConfig = LoadConfig<Config>() ?? new Config();
         Overlay ??= new Overlay(this);
 
-        DService.PartyFinder.ReceiveListing += OnReceiveListing;
+        DService.Instance().PartyFinder.ReceiveListing += OnReceiveListing;
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "LookingForGroup", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroup", OnAddon);
-        if (IsAddonAndNodesReady(LookingForGroup))
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "LookingForGroup", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "LookingForGroup", OnAddon);
+        if (LookingForGroup->IsAddonAndNodesReady())
             OnAddon(AddonEvent.PostSetup, null);
     }
 
@@ -84,7 +84,7 @@ public class PartyFinderFilter : DailyModuleBase
         ImGuiComponents.ToggleButton("###IsHighEndRoleCountFilterManualMode", ref ManualMode);
 
         ImGui.SameLine();
-        ImGui.Text(GetLoc(ManualMode ? "ManualMode" : "AutoMode"));
+        ImGui.TextUnformatted(GetLoc(ManualMode ? "ManualMode" : "AutoMode"));
 
         if (!ModuleConfig.HighEndFilterRoleCount)
             return;
@@ -141,7 +141,7 @@ public class PartyFinderFilter : DailyModuleBase
             SaveConfig(ModuleConfig);
 
         ImGui.SameLine();
-        ImGui.Text(ModuleConfig.IsWhiteList ? GetLoc("Whitelist") : GetLoc("Blacklist"));
+        ImGui.TextUnformatted(ModuleConfig.IsWhiteList ? GetLoc("Whitelist") : GetLoc("Blacklist"));
 
         ImGui.SameLine();
         ImGuiOm.HelpMarker(GetLoc("PartyFinderFilter-WorkModeHelp"), 20f * GlobalFontScale);
@@ -200,7 +200,7 @@ public class PartyFinderFilter : DailyModuleBase
         if (!ModuleConfig.FilterSameDescription)
             return true;
 
-        var description = listing.Description.ExtractText();
+        var description = listing.Description.ToString();
         if (string.IsNullOrWhiteSpace(description))
             return true;
 
@@ -215,7 +215,7 @@ public class PartyFinderFilter : DailyModuleBase
 
         var isMatch = ModuleConfig.BlackList
                                   .Where(i => i.Key)
-                                  .Any(item => Regex.IsMatch(listing.Name.ExtractText(), item.Value) ||
+                                  .Any(item => Regex.IsMatch(listing.Name.ToString(), item.Value) ||
                                                Regex.IsMatch(description, item.Value));
 
         return ModuleConfig.IsWhiteList ? isMatch : !isMatch;
@@ -224,7 +224,7 @@ public class PartyFinderFilter : DailyModuleBase
     private static bool FilterByHighEndSameJob(IPartyFinderListing listing)
     {
         if (!ModuleConfig.HighEndFilterSameJob) return true;
-        if (!IsRaid || DService.ObjectTable.LocalPlayer is not { } localPlayer) return true;
+        if (!IsRaid || DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return true;
 
         var job = localPlayer.ClassJob.Value;
         if (job.Role == 0)
@@ -242,7 +242,7 @@ public class PartyFinderFilter : DailyModuleBase
     private static bool FilterByHighEndSameRole(IPartyFinderListing listing)
     {
         if (!ModuleConfig.HighEndFilterRoleCount) return true;
-        if (!IsRaid || DService.ObjectTable.LocalPlayer is not { } localPlayer) return true;
+        if (!IsRaid || DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return true;
 
         var job = localPlayer.ClassJob.Value;
 
@@ -299,7 +299,7 @@ public class PartyFinderFilter : DailyModuleBase
                         // 手动模式：检查所有同类角色是否有空位
                         foreach (var playerJob in LuminaGetter.Get<ClassJob>().Where(j => j.RowId != 0 && j.Role == roleType))
                         {
-                            if (Enum.TryParse<JobFlags>(playerJob.NameEnglish.ExtractText().Replace(" ", string.Empty), out var flag) &&
+                            if (Enum.TryParse<JobFlags>(playerJob.NameEnglish.ToString().Replace(" ", string.Empty), out var flag) &&
                                 slots.ElementAt(i)[flag])
                             {
                                 hasSlot = true;
@@ -310,7 +310,7 @@ public class PartyFinderFilter : DailyModuleBase
                     else
                     {
                         // 自动模式：检查当前职业是否有空位
-                        if (Enum.TryParse<JobFlags>(currentJob.NameEnglish.ExtractText().Replace(" ", string.Empty), out var flag) && slots.ElementAt(i)[flag])
+                        if (Enum.TryParse<JobFlags>(currentJob.NameEnglish.ToString().Replace(" ", string.Empty), out var flag) && slots.ElementAt(i)[flag])
                             hasSlot = true;
                     }
                 }
@@ -325,8 +325,8 @@ public class PartyFinderFilter : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
-        DService.PartyFinder.ReceiveListing -= OnReceiveListing;
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().PartyFinder.ReceiveListing -= OnReceiveListing;
     }
 
     private class Config : ModuleConfiguration

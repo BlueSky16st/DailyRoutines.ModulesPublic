@@ -28,8 +28,8 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
 
     private static uint MIPDisplayType
     {
-        get => DService.GameConfig.UiConfig.GetUInt("MipDispType");
-        set => DService.GameConfig.UiConfig.Set("MipDispType", value);
+        get => DService.Instance().GameConfig.UiConfig.GetUInt("MipDispType");
+        set => DService.Instance().GameConfig.UiConfig.Set("MipDispType", value);
     }
     
     private static Config ModuleConfig = null!;
@@ -41,13 +41,13 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        TaskHelper ??= new() { TimeLimitMS = 10_000 };
+        TaskHelper ??= new() { TimeoutMS = 10_000 };
 
         ContentSelectCombo.SelectedContentIDs = ModuleConfig.BlacklistContents;
         
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        DService.ContextMenu.OnMenuOpened     += OnMenuOpen;
-        DService.DutyState.DutyCompleted      += OnDutyComplete;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().ContextMenu.OnMenuOpened     += OnMenuOpen;
+        DService.Instance().DutyState.DutyCompleted      += OnDutyComplete;
     }
 
     protected override void ConfigUI()
@@ -83,7 +83,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
     {
         if (InterruptByConflictKey(TaskHelper, this)) return;
         if (ModuleConfig.BlacklistContents.Contains(GameState.ContentFinderCondition)) return;
-        if (DService.PartyList.Length <= 1) return;
+        if (DService.Instance().PartyList.Length <= 1) return;
 
         var orig = MIPDisplayType;
         TaskHelper.Enqueue(() => MIPDisplayType = 0,    "设置最优队员推荐不显示列表");
@@ -92,7 +92,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
         TaskHelper.Enqueue(() => MIPDisplayType = orig, "还原原始最优队友推荐设置");
     }
 
-    private static bool? OpenCommendWindow()
+    private static bool OpenCommendWindow()
     {
         var notification    = GetAddonByName("_Notification");
         var notificationMvp = GetAddonByName("_NotificationIcMvp");
@@ -101,13 +101,13 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
         if (AssignedCommendationContentID == LocalPlayerState.ContentID)
             return true;
 
-        Callback(notification, true, 0, 11);
+        notification->Callback(0, 11);
         return true;
     }
     
-    private static bool? EnqueueCommendation()
+    private static bool EnqueueCommendation()
     {
-        if (!IsAddonAndNodesReady(VoteMvp)) return false;
+        if (!VoteMvp->IsAddonAndNodesReady()) return false;
         if (!AgentModule.Instance()->GetAgentByInternalId(AgentId.ContentsMvp)->IsAgentActive()) return false;
         
         if (AssignedCommendationContentID == LocalPlayerState.ContentID)
@@ -118,14 +118,14 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
         
         var hudMembers = AgentHUD.Instance()->PartyMembers.ToArray();
         Dictionary<(string Name, uint HomeWorld, uint ClassJob, uint ClassJobCategory, byte RoleRaw, PlayerRole Role, ulong ContentID), int> partyMembers = [];
-        foreach (var member in DService.PartyList)
+        foreach (var member in DService.Instance().PartyList)
         {
             if ((ulong)member.ContentId == LocalPlayerState.ContentID) continue;
 
             var index = Math.Clamp(hudMembers.IndexOf(x => x.ContentId == (ulong)member.ContentId) - 1, 0, 6);
             
             var rawRole = member.ClassJob.Value.Role;
-            partyMembers[(member.Name.ExtractText(), 
+            partyMembers[(member.Name.ToString(), 
                              member.World.RowId, 
                              member.ClassJob.RowId, 
                              member.ClassJob.Value.ClassJobCategory.RowId, 
@@ -227,11 +227,11 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
             if (!TryFindPlayerIndex(memberInfo.Name, memberInfo.ClassJob, out var playerIndex)) continue;
             if (!LuminaGetter.TryGetRow<ClassJob>(memberInfo.ClassJob, out var job)) continue;
             
-            SendEvent(AgentId.ContentsMvp, 0, 0, playerIndex);
+            AgentId.ContentsMvp.SendEvent(0, 0, playerIndex);
             Chat(GetSLoc("AutoPlayerCommend-NoticeMessage",
                          new PlayerPayload(memberInfo.Name, memberInfo.HomeWorld),
                          job.ToBitmapFontIcon(),
-                         job.Name.ExtractText()));
+                         job.Name.ToString()));
             return true;
         }
 
@@ -277,9 +277,9 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        DService.ContextMenu.OnMenuOpened -= OnMenuOpen;
-        DService.DutyState.DutyCompleted  -= OnDutyComplete;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnMenuOpen;
+        DService.Instance().DutyState.DutyCompleted  -= OnDutyComplete;
 
         AssignedCommendationContentID = 0;
     }
@@ -307,7 +307,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
 
         public override bool IsDisplay(IMenuOpenedArgs args)
         {
-            if (!DService.Condition[ConditionFlag.BoundByDuty]) return false;
+            if (!DService.Instance().Condition[ConditionFlag.BoundByDuty]) return false;
             if (args.MenuType != ContextMenuType.Default    ||
                 args.Target is not MenuTargetDefault target ||
                 (target.TargetCharacter == null && target.TargetContentId == 0)) return false;
@@ -326,7 +326,7 @@ public unsafe class AutoPlayerCommend : DailyModuleBase
 
             NotificationInfo(contentID == LocalPlayerState.ContentID
                                  ? GetLoc("AutoPlayerCommend-GiveNobodyCommendMessage")
-                                 : GetLoc("AutoPlayerCommend-AssignPlayerCommendMessage", playerName, playerWorld.Value.Name.ExtractText()));
+                                 : GetLoc("AutoPlayerCommend-AssignPlayerCommendMessage", playerName, playerWorld.Value.Name.ToString()));
             
             AssignedCommendationContentID = contentID;
         }

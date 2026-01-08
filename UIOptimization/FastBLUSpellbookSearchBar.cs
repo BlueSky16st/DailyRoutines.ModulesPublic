@@ -26,8 +26,8 @@ public unsafe class FastBLUSpellbookSearchBar : DailyModuleBase
     {
         TaskHelper ??= new();
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "AOZNotebook", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "AOZNotebook", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "AOZNotebook", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "AOZNotebook", OnAddon);
     }
 
     private void OnAddon(AddonEvent type, AddonArgs args)
@@ -65,12 +65,12 @@ public unsafe class FastBLUSpellbookSearchBar : DailyModuleBase
                         ShowLimitText = true,
                         OnInputReceived = x =>
                         {
-                            SearchBarInput = x.ExtractText();
+                            SearchBarInput = x.ToString();
                             ConductSearch(SearchBarInput);
                         },
                         OnInputComplete = x =>
                         {
-                            SearchBarInput = x.ExtractText();
+                            SearchBarInput = x.ToString();
                             ConductSearch(SearchBarInput);
                         },
                     };
@@ -96,7 +96,7 @@ public unsafe class FastBLUSpellbookSearchBar : DailyModuleBase
                 return true;
             }
             
-            if (!IsAddonAndNodesReady(addon)) return false;
+            if (!addon->IsAddonAndNodesReady()) return false;
             // 非技能页面
             if (addon->AtkValues->Int >= 9)
             {
@@ -104,14 +104,14 @@ public unsafe class FastBLUSpellbookSearchBar : DailyModuleBase
                 return true;
             }
             
-            SendEvent(AgentId.AozNotebook, 2, 0, 0U, input);
+            AgentId.AozNotebook.SendEvent(2, 0, 0U, input);
             return true;
         });
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         OnAddon(AddonEvent.PreFinalize, null);
     }
 }

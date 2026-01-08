@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using System.Reflection;
@@ -11,7 +10,6 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Network.Structures;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Hooking;
-using Dalamud.Interface;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -26,12 +24,10 @@ public unsafe partial class AutoRetainerWork
 {
     public class PriceAdjustWorker : RetainerWorkerBase
     {
-        public override bool DrawOverlayCondition(string activeAddonName) => 
+        public override bool DrawOverlayCondition(string activeAddonName) =>
             activeAddonName is "RetainerList";
 
         public override bool IsWorkerBusy() => TaskHelper?.IsBusy ?? false;
-
-        public override string RunningMessage() => TaskHelper?.CurrentTaskName ?? string.Empty;
 
         private delegate void MoveToRetainerMarketDelegate(
             InventoryManager* manager,
@@ -41,13 +37,14 @@ public unsafe partial class AutoRetainerWork
             ushort            dstSlot,
             uint              quantity,
             uint              unitPrice);
+
         private static Hook<MoveToRetainerMarketDelegate>? MoveToRetainerMarketHook;
 
         private static readonly string[] SellInventoryItemsText =
             ["玩家所持物品", "Sell items in your inventory", "プレイヤー所持品から"];
 
-        private static  TaskHelper?             TaskHelper;
-        private static  LuminaSearcher<Item>?   ItemSearcher;
+        private static TaskHelper?           TaskHelper;
+        private static LuminaSearcher<Item>? ItemSearcher;
 
         private static          ItemConfig?    SelectedItemConfig;
         private static readonly Vector2        ChildSizeLeft     = ScaledVector2(200, 400);
@@ -72,24 +69,24 @@ public unsafe partial class AutoRetainerWork
         private static uint          UpshelfUnitPriceInput;
         private static uint          UpshelfQuantityInput;
         private static bool          IsDisplayingTooltip;
-        
+
         public override void Init()
         {
-            MoveToRetainerMarketHook ??= DService.Hook.HookFromAddress<MoveToRetainerMarketDelegate>(
+            MoveToRetainerMarketHook ??= DService.Instance().Hook.HookFromAddress<MoveToRetainerMarketDelegate>(
                 GetMemberFuncByName(typeof(InventoryManager.MemberFunctionPointers), "MoveToRetainerMarket"),
                 MoveToRetainerMarketDetour);
             MoveToRetainerMarketHook.Enable();
 
-            ItemSearcher ??= new(LuminaGetter.Get<Item>(), [x => x.Name.ExtractText(), x => x.RowId.ToString()]);
+            ItemSearcher ??= new(LuminaGetter.Get<Item>(), [x => x.Name.ToString(), x => x.RowId.ToString()]);
 
-            TaskHelper ??= new() { TimeLimitMS = 30_000 };
+            TaskHelper ??= new() { TimeoutMS = 30_000, ShowDebug = true };
 
-            DService.MarketBoard.HistoryReceived   += OnHistoryReceived;
-            DService.MarketBoard.OfferingsReceived += OnOfferingReceived;
+            DService.Instance().MarketBoard.HistoryReceived   += OnHistoryReceived;
+            DService.Instance().MarketBoard.OfferingsReceived += OnOfferingReceived;
 
-            DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "RetainerSell",     OnRetainerSell);
-            DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "RetainerSellList", OnRetainerSellList);
-            DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "RetainerSellList", OnRetainerSellList);
+            DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "RetainerSell",     OnRetainerSell);
+            DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "RetainerSellList", OnRetainerSellList);
+            DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "RetainerSellList", OnRetainerSellList);
 
             WindowManager.Draw += DrawMarketListWindow;
             WindowManager.Draw += DrawUpshelfWindow;
@@ -110,7 +107,7 @@ public unsafe partial class AutoRetainerWork
             using var node = ImRaii.TreeNode(GetLoc("AutoRetainerWork-PriceAdjust-Title"));
             if (!node) return;
             if (activeAddonName != "RetainerList") return;
-            
+
             ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), GetLoc("AutoRetainerWork-PriceAdjust-AdjustForRetainers"));
             ImGui.Spacing();
 
@@ -136,7 +133,8 @@ public unsafe partial class AutoRetainerWork
         private static void DrawMarketListWindow()
         {
             if (!IsNeedToDrawMarketListWindow) return;
-            if (!IsAddonAndNodesReady(RetainerSellList))
+
+            if (!RetainerSellList->IsAddonAndNodesReady())
             {
                 IsNeedToDrawMarketListWindow = false;
                 return;
@@ -149,6 +147,7 @@ public unsafe partial class AutoRetainerWork
             var windowPos = default(Vector2);
 
             ImGui.SetNextWindowSize(size);
+
             if (ImGui.Begin("改价窗口##AutoRetainerWork-PriceAdjustWorker",
                             ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoScrollbar |
                             ImGuiWindowFlags.MenuBar))
@@ -162,8 +161,9 @@ public unsafe partial class AutoRetainerWork
                 addon->SetPosition((short)windowPos.X, (short)windowPos.Y);
 
             if (InfoProxyItemSearch.Instance()->SearchItemId == 0) return;
-            
+
             ImGui.SetNextWindowSizeConstraints(new(200, 300), new(float.MaxValue));
+
             if (ImGui.Begin("市场数据窗口##AutoRetainerWork-PriceAdjustWorker", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar))
             {
                 DrawMarketDataTable();
@@ -171,9 +171,10 @@ public unsafe partial class AutoRetainerWork
                 if (HistoryListings.Key != 0 && HistoryListings.Value.Count > 0)
                 {
                     ImGui.NewLine();
-                    
+
                     DrawMarketHistoryDataTable();
                 }
+
                 ImGui.End();
             }
         }
@@ -181,7 +182,8 @@ public unsafe partial class AutoRetainerWork
         private static void DrawUpshelfWindow()
         {
             if (!IsNeedToDrawMarketUpshelfWindow) return;
-            if (!IsAddonAndNodesReady(RetainerSellList))
+
+            if (!RetainerSellList->IsAddonAndNodesReady())
             {
                 IsNeedToDrawMarketUpshelfWindow = false;
                 return;
@@ -205,9 +207,11 @@ public unsafe partial class AutoRetainerWork
                 ImGui.OpenPopup("AddNewPreset");
 
             ImGui.SameLine();
+
             if (ImGuiOm.ButtonIcon("ImportConfig", FontAwesomeIcon.FileImport, GetLoc("ImportFromClipboard")))
             {
                 var itemConfig = ImportFromClipboard<ItemConfig>();
+
                 if (itemConfig != null)
                 {
                     var itemKey = new ItemKey(itemConfig.ItemID, itemConfig.IsHQ).ToString();
@@ -222,7 +226,8 @@ public unsafe partial class AutoRetainerWork
                     AddNewConfigItemPopup(() =>
                     {
                         var newConfigStr = new ItemKey(NewConfigItemID, NewConfigItemHQ).ToString();
-                        var newConfig = new ItemConfig(NewConfigItemID, NewConfigItemHQ);
+                        var newConfig    = new ItemConfig(NewConfigItemID, NewConfigItemHQ);
+
                         if (ModuleConfig.ItemConfigs.TryAdd(newConfigStr, newConfig))
                         {
                             ModuleConfig.Save(Module);
@@ -248,6 +253,7 @@ public unsafe partial class AutoRetainerWork
                     SelectedItemConfig = itemConfig.Value;
 
                 var isOpenPopup = false;
+
                 using (var popup1 = ImRaii.ContextPopupItem($"{itemConfig.Value}_{itemConfig.Key}_{itemConfig.Value.ItemID}"))
                 {
                     if (popup1)
@@ -283,16 +289,16 @@ public unsafe partial class AutoRetainerWork
                             var newConfigStr = new ItemKey(NewConfigItemID, NewConfigItemHQ).ToString();
                             var newConfig = new ItemConfig
                             {
-                                ItemID = NewConfigItemID,
-                                IsHQ = NewConfigItemHQ,
-                                ItemName = LuminaGetter.GetRow<Item>(NewConfigItemID)?.Name.ExtractText() ?? string.Empty,
-                                AbortLogic = itemConfig.Value.AbortLogic,
-                                AdjustBehavior = itemConfig.Value.AdjustBehavior,
-                                AdjustValues = itemConfig.Value.AdjustValues,
-                                PriceExpected = itemConfig.Value.PriceExpected,
-                                PriceMaximum = itemConfig.Value.PriceMaximum,
+                                ItemID            = NewConfigItemID,
+                                IsHQ              = NewConfigItemHQ,
+                                ItemName          = LuminaGetter.GetRow<Item>(NewConfigItemID)?.Name.ToString() ?? string.Empty,
+                                AbortLogic        = itemConfig.Value.AbortLogic,
+                                AdjustBehavior    = itemConfig.Value.AdjustBehavior,
+                                AdjustValues      = itemConfig.Value.AdjustValues,
+                                PriceExpected     = itemConfig.Value.PriceExpected,
+                                PriceMaximum      = itemConfig.Value.PriceMaximum,
                                 PriceMaxReduction = itemConfig.Value.PriceMaxReduction,
-                                PriceMinimum = itemConfig.Value.PriceMinimum
+                                PriceMinimum      = itemConfig.Value.PriceMinimum
                             };
 
                             if (ModuleConfig.ItemConfigs.TryAdd(newConfigStr, newConfig))
@@ -325,13 +331,14 @@ public unsafe partial class AutoRetainerWork
             if (string.IsNullOrWhiteSpace(ItemSearchInput)) return;
 
             ImGui.Separator();
+
             foreach (var item in ItemSearcher.SearchResult)
             {
-                var itemIcon = DService.Texture.GetFromGameIcon(new(item.Icon, NewConfigItemHQ)).GetWrapOrDefault();
+                var itemIcon = DService.Instance().Texture.GetFromGameIcon(new(item.Icon, NewConfigItemHQ)).GetWrapOrDefault();
                 if (itemIcon == null) continue;
 
                 if (ImGuiOm.SelectableImageWithText(itemIcon.Handle, new(ImGui.GetTextLineHeightWithSpacing()),
-                                                    item.Name.ExtractText(), item.RowId == NewConfigItemID,
+                                                    item.Name.ToString(), item.RowId == NewConfigItemID,
                                                     ImGuiSelectableFlags.DontClosePopups))
                     NewConfigItemID = item.RowId;
             }
@@ -346,12 +353,12 @@ public unsafe partial class AutoRetainerWork
 
             // 基本信息获取
             if (!LuminaGetter.TryGetRow<Item>(SelectedItemConfig.ItemID, out var item)) return;
-            
+
             var itemName = SelectedItemConfig.ItemID == 0
                                ? GetLoc("AutoRetainerWork-PriceAdjust-CommonItemPreset")
-                               : item.Name.ExtractText() ?? string.Empty;
+                               : item.Name.ToString() ?? string.Empty;
 
-            var itemLogo = DService.Texture
+            var itemLogo = DService.Instance().Texture
                                    .GetFromGameIcon(new(SelectedItemConfig.ItemID == 0 ? 65002 : (uint)item.Icon, SelectedItemConfig.IsHQ))
                                    .GetWrapOrDefault();
             if (itemLogo == null) return;
@@ -364,12 +371,13 @@ public unsafe partial class AutoRetainerWork
             ImGui.Image(itemLogo.Handle, ScaledVector2(48f));
 
             ImGui.SameLine();
-            using (FontManager.UIFont140.Push())
-                ImGui.Text(itemName);
+
+            using (FontManager.Instance().UIFont140.Push())
+                ImGui.TextUnformatted(itemName);
 
             ImGui.SameLine();
-            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + (6f * GlobalFontScale));
-            ImGui.Text(SelectedItemConfig.IsHQ ? $"({GetLoc("HQ")})" : string.Empty);
+            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 6f * GlobalFontScale);
+            ImGui.TextUnformatted(SelectedItemConfig.IsHQ ? $"({GetLoc("HQ")})" : string.Empty);
 
             ImGui.Separator();
 
@@ -387,6 +395,7 @@ public unsafe partial class AutoRetainerWork
             }
 
             ImGui.SameLine();
+
             using (ImRaii.Group())
             {
                 if (SelectedItemConfig.AdjustBehavior == AdjustBehavior.固定值)
@@ -394,6 +403,7 @@ public unsafe partial class AutoRetainerWork
                     var originalValue = SelectedItemConfig.AdjustValues[AdjustBehavior.固定值];
                     ImGui.SetNextItemWidth(100f * GlobalFontScale);
                     ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-ValueReduction"), ref originalValue);
+
                     if (ImGui.IsItemDeactivatedAfterEdit())
                     {
                         SelectedItemConfig.AdjustValues[AdjustBehavior.固定值] = originalValue;
@@ -408,6 +418,7 @@ public unsafe partial class AutoRetainerWork
                     var originalValue = SelectedItemConfig.AdjustValues[AdjustBehavior.百分比];
                     ImGui.SetNextItemWidth(100f * GlobalFontScale);
                     ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-PercentageReduction"), ref originalValue);
+
                     if (ImGui.IsItemDeactivatedAfterEdit())
                     {
                         SelectedItemConfig.AdjustValues[AdjustBehavior.百分比] = Math.Clamp(originalValue, -99, 99);
@@ -424,6 +435,7 @@ public unsafe partial class AutoRetainerWork
             var originalMin = SelectedItemConfig.PriceMinimum;
             ImGui.SetNextItemWidth(200f * GlobalFontScale);
             ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-PriceMinimum"), ref originalMin);
+
             if (ImGui.IsItemDeactivatedAfterEdit())
             {
                 SelectedItemConfig.PriceMinimum = Math.Max(1, originalMin);
@@ -431,6 +443,7 @@ public unsafe partial class AutoRetainerWork
             }
 
             ImGui.SameLine();
+
             using (ImRaii.Disabled(SelectedItemConfig.ItemID == 0))
             {
                 if (ImGuiOm.ButtonIcon("ObtainBuyingPrice", FontAwesomeIcon.Store, GetLoc("AutoRetainerWork-PriceAdjust-ObtainBuyingPrice")))
@@ -444,6 +457,7 @@ public unsafe partial class AutoRetainerWork
             var originalMax = SelectedItemConfig.PriceMaximum;
             ImGui.SetNextItemWidth(200f * GlobalFontScale);
             ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-PriceMaximum"), ref originalMax);
+
             if (ImGui.IsItemDeactivatedAfterEdit())
             {
                 SelectedItemConfig.PriceMaximum = Math.Min(int.MaxValue, originalMax);
@@ -454,6 +468,7 @@ public unsafe partial class AutoRetainerWork
             var originalExpected = SelectedItemConfig.PriceExpected;
             ImGui.SetNextItemWidth(200f * GlobalFontScale);
             ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-PriceExpected"), ref originalExpected);
+
             if (ImGui.IsItemDeactivatedAfterEdit())
             {
                 SelectedItemConfig.PriceExpected = Math.Max(originalMin + 1, originalExpected);
@@ -461,6 +476,7 @@ public unsafe partial class AutoRetainerWork
             }
 
             ImGui.SameLine();
+
             using (ImRaii.Disabled(SelectedItemConfig.ItemID == 0))
             {
                 if (ImGuiOm.ButtonIcon("OpenUniversalis", FontAwesomeIcon.Globe, GetLoc("AutoRetainerWork-PriceAdjust-OpenUniversalis")))
@@ -471,16 +487,18 @@ public unsafe partial class AutoRetainerWork
             var originalPriceReducion = SelectedItemConfig.PriceMaxReduction;
             ImGui.SetNextItemWidth(200f * GlobalFontScale);
             ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-PriceMaxReduction"), ref originalPriceReducion);
+
             if (ImGui.IsItemDeactivatedAfterEdit())
             {
                 SelectedItemConfig.PriceMaxReduction = Math.Max(0, originalPriceReducion);
                 ModuleConfig.Save(Module);
             }
-            
+
             // 单次上架数
             var originalUpshelfCount = SelectedItemConfig.UpshelfCount;
             ImGui.SetNextItemWidth(200f * GlobalFontScale);
             ImGui.InputInt(GetLoc("AutoRetainerWork-PriceAdjust-UpshelfCount"), ref originalUpshelfCount);
+
             if (ImGui.IsItemDeactivatedAfterEdit())
             {
                 SelectedItemConfig.UpshelfCount = originalUpshelfCount;
@@ -493,6 +511,7 @@ public unsafe partial class AutoRetainerWork
             using (ImRaii.Group())
             {
                 ImGui.SetNextItemWidth(250f * GlobalFontScale);
+
                 using (var combo = ImRaii.Combo("###AddNewLogicConditionCombo", ConditionInput.ToString(), ImGuiComboFlags.HeightLarge))
                 {
                     if (combo)
@@ -500,6 +519,7 @@ public unsafe partial class AutoRetainerWork
                         foreach (AbortCondition condition in Enum.GetValues(typeof(AbortCondition)))
                         {
                             if (condition == AbortCondition.无) continue;
+
                             if (ImGui.Selectable(condition.ToString(), ConditionInput.HasFlag(condition), ImGuiSelectableFlags.DontClosePopups))
                             {
                                 var combinedCondition = ConditionInput;
@@ -515,6 +535,7 @@ public unsafe partial class AutoRetainerWork
                 }
 
                 ImGui.SetNextItemWidth(250f * GlobalFontScale);
+
                 using (var combo = ImRaii.Combo("###AddNewLogicBehaviorCombo", BehaviorInput.ToString(), ImGuiComboFlags.HeightLarge))
                 {
                     if (combo)
@@ -531,6 +552,7 @@ public unsafe partial class AutoRetainerWork
             var groupSize0 = ImGui.GetItemRectSize();
 
             ImGui.SameLine();
+
             if (ImGuiOm.ButtonIconWithTextVertical(FontAwesomeIcon.Plus, GetLoc("Add"),
                                                    groupSize0 with { X = ImGui.CalcTextSize(GetLoc("Add")).X * 2f }))
             {
@@ -580,7 +602,7 @@ public unsafe partial class AutoRetainerWork
                 }
 
                 ImGui.SameLine();
-                ImGui.Text("→");
+                ImGui.TextUnformatted("→");
 
                 // 行为处理 (值)
                 var origBehaviorStr = logic.Value.ToString();
@@ -626,12 +648,12 @@ public unsafe partial class AutoRetainerWork
             var marketContainer = inventoryManager->GetInventoryContainer(InventoryType.RetainerMarket);
             if (marketContainer == null || !marketContainer->IsLoaded) return;
 
-            using var font = FontManager.GetUIFont(ModuleConfig.MarketItemsWindowFontScale).Push();
+            using var font = FontManager.Instance().GetUIFont(ModuleConfig.MarketItemsWindowFontScale).Push();
 
             if (ImGui.BeginMenuBar())
             {
-                ImGui.Text($"{GetLoc("AutoRetainerWork-PriceAdjust-Adjust")}:");
-                
+                ImGui.TextUnformatted($"{GetLoc("AutoRetainerWork-PriceAdjust-Adjust")}:");
+
                 using (ImRaii.Disabled(TaskHelper.IsBusy))
                 {
                     if (ImGui.MenuItem(GetLoc("Start")))
@@ -640,26 +662,37 @@ public unsafe partial class AutoRetainerWork
 
                 if (ImGui.MenuItem(GetLoc("Stop")))
                     TaskHelper.Abort();
-                
+
                 ImGui.TextDisabled("|");
-                
+
                 using (ImRaii.Disabled(TaskHelper.IsBusy))
                 {
                     if (ImGui.BeginMenu(GetLoc("Shortcut")))
                     {
                         if (ImGui.MenuItem(GetLoc("AutoRetainerWork-PriceAdjust-ReturnAllToInventory")))
-                            Enumerable.Range(0, marketContainer->Size)
-                                      .ForEach(x => ReturnRetainerMarketItemToInventory((ushort)x, true));
+                        {
+                            for (var i = 0; i < marketContainer->Size; i++)
+                            {
+                                var index = i;
+                                TaskHelper.Enqueue(() => ReturnRetainerMarketItemToInventory((ushort)index, true), $"将市场第 {index} 栏物品收回至背包");
+                            }
+                        }
 
                         if (ImGui.MenuItem(GetLoc("AutoRetainerWork-PriceAdjust-ReturnAllToRetainer")))
-                            Enumerable.Range(0, marketContainer->Size)
-                                      .ForEach(x => ReturnRetainerMarketItemToInventory((ushort)x, false));
+                        {
+                            for (var i = 0; i < marketContainer->Size; i++)
+                            {
+                                var index = i;
+                                TaskHelper.Enqueue(() => ReturnRetainerMarketItemToInventory((ushort)index, false), $"将市场第 {index} 栏物品收回至雇员");
+                            }
+                        }
+
                         ImGui.EndMenu();
                     }
                 }
 
                 ImGui.TextDisabled("|");
-                
+
                 using (ImRaii.Disabled(TaskHelper.IsBusy))
                 {
                     if (ImGui.MenuItem(GetLoc("AutoRetainerWork-PriceAdjust-ClearCache")))
@@ -670,7 +703,7 @@ public unsafe partial class AutoRetainerWork
                 }
 
                 ImGui.TextDisabled("|");
-                
+
                 if (ImGui.BeginMenu(GetLoc("Settings")))
                 {
                     if (ImGui.BeginMenu(GetLoc("FontSize")))
@@ -678,7 +711,7 @@ public unsafe partial class AutoRetainerWork
                         for (var i = 0.6f; i < 1.8f; i += 0.2f)
                         {
                             var fontScale = (float)Math.Round(i, 1);
-                            
+
                             if (ImGui.MenuItem($"{fontScale}", string.Empty,
                                                fontScale == ModuleConfig.MarketItemsWindowFontScale))
                             {
@@ -686,10 +719,10 @@ public unsafe partial class AutoRetainerWork
                                 ModuleConfig.Save(Module);
                             }
                         }
-                        
+
                         ImGui.EndMenu();
                     }
-                    
+
                     if (ImGui.BeginMenu(GetLoc("AutoRetainerWork-PriceAdjust-SortOrder")))
                     {
                         foreach (var sortOrder in Enum.GetValues<SortOrder>())
@@ -701,17 +734,17 @@ public unsafe partial class AutoRetainerWork
                                 ModuleConfig.Save(Module);
                             }
                         }
-                        
+
                         ImGui.EndMenu();
                     }
-                    
+
                     if (ImGui.MenuItem(GetLoc("AutoRetainerWork-PriceAdjust-AutoAdjustWhenNewOnSale"), string.Empty,
                                        ModuleConfig.AutoPriceAdjustWhenNewOnSale))
                     {
                         ModuleConfig.AutoPriceAdjustWhenNewOnSale ^= true;
                         ModuleConfig.Save(Module);
                     }
-                    
+
                     if (ImGui.MenuItem(GetLoc("AutoRetainerWork-PriceAdjust-SendProcessMessage"), string.Empty,
                                        ModuleConfig.SendPriceAdjustProcessMessage))
                     {
@@ -721,18 +754,18 @@ public unsafe partial class AutoRetainerWork
 
                     ImGui.EndMenu();
                 }
-                
+
                 ImGui.TextDisabled("|");
-                
+
                 using (ImRaii.Disabled(TaskHelper.IsBusy))
                 {
-                    if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2366)!.Value.Text.ExtractText()))
-                        Callback(RetainerSellList, true, -1);
+                    if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2366)!.Value.Text.ToString()))
+                        RetainerSellList->Callback(-1);
                 }
 
                 ImGui.EndMenuBar();
             }
-            
+
             using var disabled = ImRaii.Disabled(TaskHelper.IsBusy);
             using var table = ImRaii.Table("MarketItemTable", 5,
                                            ImGuiTableFlags.Borders   | ImGuiTableFlags.Reorderable |
@@ -747,14 +780,14 @@ public unsafe partial class AutoRetainerWork
 
             ImGui.TableHeadersRow();
 
-            if (!TryGetInventoryItems([InventoryType.RetainerMarket], x => x.ItemId != 0, out var validItems)) return;
+            if (!InventoryType.RetainerMarket.TryGetItems(x => x.ItemId != 0, out var validItems)) return;
 
             var itemSource = validItems
                              .Select(x => new
                              {
                                  Inventory = x,
                                  Data      = LuminaGetter.GetRow<Item>(x.ItemId).GetValueOrDefault(),
-                                 Slot      = (ushort)x.Slot,
+                                 Slot      = (ushort)x.Slot
                              })
                              .OrderBy(x => ModuleConfig.MarketItemsSortOrder switch
                              {
@@ -772,31 +805,32 @@ public unsafe partial class AutoRetainerWork
 
             var isTooltip     = false;
             var tooltipItemID = 0U;
+
             foreach (var item in itemSource)
             {
                 var itemPrice = GetRetainerMarketPrice(item.Slot);
                 if (itemPrice == 0) continue;
 
                 var isItemHQ = item.Inventory.Flags.HasFlag(InventoryItem.ItemFlags.HighQuality);
-                var itemIcon = DService.Texture.GetFromGameIcon(new(item.Data.Icon, isItemHQ)).GetWrapOrDefault();
+                var itemIcon = DService.Instance().Texture.GetFromGameIcon(new(item.Data.Icon, isItemHQ)).GetWrapOrDefault();
                 if (itemIcon == null) continue;
 
-                var itemName = $"{item.Data.Name.ExtractText()}" + (isItemHQ ? "\ue03c" : string.Empty);
+                var itemName = $"{item.Data.Name.ToString()}" + (isItemHQ ? "\ue03c" : string.Empty);
 
                 ImGui.TableNextRow();
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{item.Slot + 1}");
+                ImGui.TextUnformatted($"{item.Slot + 1}");
 
                 DrawItemColumn(item.Slot, item.Inventory.ItemId, itemName, itemIcon, ref isTooltip, ref tooltipItemID);
 
                 DrawUnitPriceColumn(item.Slot, item.Inventory.ItemId, itemPrice, (uint)item.Inventory.Quantity, itemIcon, itemName);
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{item.Inventory.Quantity}");
+                ImGui.TextUnformatted($"{item.Inventory.Quantity}");
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{FormatNumber((uint)(item.Inventory.Quantity * itemPrice))}");
+                ImGui.TextUnformatted($"{(item.Inventory.Quantity * itemPrice).ToChineseString()}");
             }
 
             if (isTooltip)
@@ -821,7 +855,7 @@ public unsafe partial class AutoRetainerWork
 
             ImGui.TableNextColumn();
             ImGuiOm.SelectableImageWithText(itemIcon.Handle, new(ImGui.GetTextLineHeightWithSpacing()), itemName, false);
-            
+
             if (ImGui.IsItemHovered())
             {
                 isTooltip     = true;
@@ -849,7 +883,7 @@ public unsafe partial class AutoRetainerWork
             using var group = ImRaii.Group();
 
             ImGui.TableNextColumn();
-            ImGui.Selectable($"{FormatNumber(price)}");
+            ImGui.Selectable($"{price.ToChineseString()}");
 
             if (ImGui.IsItemHovered())
                 ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
@@ -879,15 +913,16 @@ public unsafe partial class AutoRetainerWork
                             if (TryGetSameItemSlots(itemID, out var slots))
                                 slots.ForEach(s => EnqueuePriceAdjustSingle(s));
                         }
-                    
+
                         if (ImGui.MenuItem(GetLoc("AutoRetainerWork-PriceAdjust-AdjustUnitPriceAllSameItemsManual")))
                         {
                             ImGui.CloseCurrentPopup();
-                        
+
                             RequestMarketItemData(itemID);
                             isNeedOpenAllManualModifyPopup = true;
                         }
                     }
+
                     ImGuiOm.TooltipHover(GetLoc("AutoRetainerWork-PriceAdjust-AdjustUnitPriceAllSameItemsHelp"));
                 }
             }
@@ -905,13 +940,15 @@ public unsafe partial class AutoRetainerWork
                     ImGui.Image(itemIcon.Handle, ManualUnitPriceImageSize with { X = ManualUnitPriceImageSize.Y });
 
                     ImGui.SameLine();
+
                     using (ImRaii.Group())
                     {
-                        using (FontManager.UIFont140.Push())
-                            ImGui.Text($"{itemName}");
+                        using (FontManager.Instance().UIFont140.Push())
+                            ImGui.TextUnformatted($"{itemName}");
 
                         ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-MarketItemsCount")}: {quantity}");
                     }
+
                     ManualUnitPriceImageSize = ImGui.GetItemRectSize();
 
                     ImGui.AlignTextToFramePadding();
@@ -924,7 +961,7 @@ public unsafe partial class AutoRetainerWork
                     ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{LuminaWrapper.GetAddonText(6936)}:");
 
                     ImGui.SameLine();
-                    ImGui.Text($"{FormatNumber(quantity * ItemModifyUnitPriceManual)}");
+                    ImGui.TextUnformatted($"{(quantity * ItemModifyUnitPriceManual).ToChineseString()}");
 
                     ImGui.Separator();
 
@@ -935,7 +972,7 @@ public unsafe partial class AutoRetainerWork
                     }
                 }
             }
-            
+
             if (isNeedOpenAllManualModifyPopup)
                 ImGui.OpenPopup("ModifyAllUnitPriceManualPopup");
 
@@ -952,19 +989,21 @@ public unsafe partial class AutoRetainerWork
                     ImGui.Image(itemIcon.Handle, ManualUnitPriceImageSize with { X = ManualUnitPriceImageSize.Y });
 
                     ImGui.SameLine();
+
                     using (ImRaii.Group())
                     {
-                        using (FontManager.UIFont140.Push())
-                            ImGui.Text($"{itemName}");
+                        using (FontManager.Instance().UIFont140.Push())
+                            ImGui.TextUnformatted($"{itemName}");
 
                         ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-MarketItemsCount")}: {quantity}");
-                        
+
                         ImGui.SameLine();
                         ImGui.TextDisabled("/");
-                        
+
                         ImGui.SameLine();
                         ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-SameItemsCount")}: {ItemModifyCountManual}");
                     }
+
                     ManualUnitPriceImageSize = ImGui.GetItemRectSize();
 
                     ImGui.AlignTextToFramePadding();
@@ -977,7 +1016,7 @@ public unsafe partial class AutoRetainerWork
                     ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{LuminaWrapper.GetAddonText(6936)}:");
 
                     ImGui.SameLine();
-                    ImGui.Text($"{FormatNumber(quantity * ItemModifyUnitPriceManual)}");
+                    ImGui.TextUnformatted($"{(quantity * ItemModifyUnitPriceManual).ToChineseString()}");
 
                     ImGui.Separator();
 
@@ -985,7 +1024,7 @@ public unsafe partial class AutoRetainerWork
                     {
                         if (TryGetSameItemSlots(itemID, out var slots))
                             slots.ForEach(s => EnqueuePriceAdjustSingle(s, ItemModifyUnitPriceManual));
-                        
+
                         ImGui.CloseCurrentPopup();
                     }
                 }
@@ -1007,23 +1046,24 @@ public unsafe partial class AutoRetainerWork
 
             if (!LuminaGetter.TryGetRow<Item>(info->SearchItemId, out var itemData)) return;
 
-            var itemIcon = DService.Texture.GetFromGameIcon(new(itemData.Icon)).GetWrapOrDefault();
+            var itemIcon = DService.Instance().Texture.GetFromGameIcon(new(itemData.Icon)).GetWrapOrDefault();
             if (itemIcon == null) return;
 
-            using var font = FontManager.UIFont.Push();
+            using var font = FontManager.Instance().UIFont.Push();
 
             ImGui.Image(itemIcon.Handle, MarketDataTableImageSize with { X = MarketDataTableImageSize.Y });
 
             ImGui.SameLine();
+
             using (ImRaii.Group())
             {
-                using (FontManager.UIFont160.Push())
+                using (FontManager.Instance().UIFont160.Push())
                 {
                     ImGui.AlignTextToFramePadding();
-                    ImGui.Text($"{itemData.Name}");
+                    ImGui.TextUnformatted($"{itemData.Name}");
                 }
 
-                using (FontManager.UIFont.Push())
+                using (FontManager.Instance().UIFont.Push())
                 {
                     ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-OnSaleCount")}: {info->ListingCount}");
 
@@ -1031,12 +1071,12 @@ public unsafe partial class AutoRetainerWork
                     {
                         var minPrice = listingsArray.Min(x => x.UnitPrice);
                         ImGui.SameLine();
-                        ImGui.TextDisabled($" / {GetLoc("AutoRetainerWork-PriceAdjust-MinPrice")}: {FormatNumber(minPrice)} / ");
+                        ImGui.TextDisabled($" / {GetLoc("AutoRetainerWork-PriceAdjust-MinPrice")}: {minPrice.ToChineseString()} / ");
                         ClickToCopy(minPrice.ToString());
 
                         var maxPrice = listingsArray.Max(x => x.UnitPrice);
                         ImGui.SameLine();
-                        ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-MaxPrice")}: {FormatNumber(maxPrice)}");
+                        ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-MaxPrice")}: {maxPrice.ToChineseString()}");
                         ClickToCopy(maxPrice.ToString());
                     }
                 }
@@ -1053,11 +1093,11 @@ public unsafe partial class AutoRetainerWork
             var isAnyMateriaEquipped = itemData.MateriaSlotCount > 0 && listingsArray.Any(x => x.MateriaCount > 0);
 
             var columnsCount = 6;
-            if (!isAnyHQ) 
+            if (!isAnyHQ)
                 columnsCount--;
-            if (!isAnyMateriaEquipped) 
+            if (!isAnyMateriaEquipped)
                 columnsCount--;
-            if (!isAnyOnMannequin) 
+            if (!isAnyOnMannequin)
                 columnsCount--;
 
             using var table = ImRaii.Table("MarketBoardDataTable", columnsCount, ImGuiTableFlags.Borders);
@@ -1089,30 +1129,30 @@ public unsafe partial class AutoRetainerWork
                 if (isAnyHQ)
                 {
                     ImGui.TableNextColumn();
-                    ImGui.Text(listing.IsHqItem ? "√" : string.Empty);
+                    ImGui.TextUnformatted(listing.IsHqItem ? "√" : string.Empty);
                 }
 
                 if (isAnyMateriaEquipped)
                 {
                     ImGui.TableNextColumn();
-                    ImGui.Text($"{listing.MateriaCount}");
+                    ImGui.TextUnformatted($"{listing.MateriaCount}");
                 }
 
                 if (isAnyOnMannequin)
                 {
                     ImGui.TableNextColumn();
-                    ImGui.Text(listing.IsMannequin ? "√" : string.Empty);
+                    ImGui.TextUnformatted(listing.IsMannequin ? "√" : string.Empty);
                 }
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{FormatNumber(listing.UnitPrice)}");
+                ImGui.TextUnformatted($"{listing.UnitPrice.ToChineseString()}");
                 ClickToCopy(listing.UnitPrice.ToString());
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{listing.Quantity}");
+                ImGui.TextUnformatted($"{listing.Quantity}");
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{FormatNumber((listing.UnitPrice * listing.Quantity) + listing.TotalTax)}");
+                ImGui.TextUnformatted($"{(listing.UnitPrice * listing.Quantity + listing.TotalTax).ToChineseString()}");
             }
         }
 
@@ -1124,12 +1164,12 @@ public unsafe partial class AutoRetainerWork
             if (HistoryListings.Key == 0) return;
             if (!LuminaGetter.TryGetRow<Item>(HistoryListings.Key, out _)) return;
 
-            using var font = FontManager.UIFont.Push();
+            using var font = FontManager.Instance().UIFont.Push();
 
             using (ImRaii.Group())
             {
-                using (FontManager.UIFont160.Push())
-                    ImGui.Text($"{LuminaWrapper.GetAddonText(1165)}");
+                using (FontManager.Instance().UIFont160.Push())
+                    ImGui.TextUnformatted($"{LuminaWrapper.GetAddonText(1165)}");
 
                 ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-OnSaleCount")}: {info->ListingCount}");
 
@@ -1137,12 +1177,12 @@ public unsafe partial class AutoRetainerWork
                 {
                     var minPrice = HistoryListings.Value.Min(x => x.SalePrice);
                     ImGui.SameLine();
-                    ImGui.TextDisabled($" / {GetLoc("AutoRetainerWork-PriceAdjust-MinPrice")}: {FormatNumber(minPrice)} / ");
+                    ImGui.TextDisabled($" / {GetLoc("AutoRetainerWork-PriceAdjust-MinPrice")}: {minPrice.ToChineseString()} / ");
                     ClickToCopy(minPrice.ToString());
 
                     var maxPrice = HistoryListings.Value.Max(x => x.SalePrice);
                     ImGui.SameLine();
-                    ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-MaxPrice")}: {FormatNumber(maxPrice)}");
+                    ImGui.TextDisabled($"{GetLoc("AutoRetainerWork-PriceAdjust-MaxPrice")}: {maxPrice.ToChineseString()}");
                     ClickToCopy(maxPrice.ToString());
                 }
             }
@@ -1154,7 +1194,7 @@ public unsafe partial class AutoRetainerWork
             var isAnyHQ = HistoryListings.Value.Any(x => x.IsHq);
 
             var columnsCount = 5;
-            if (!isAnyHQ) 
+            if (!isAnyHQ)
                 columnsCount--;
 
             using var table = ImRaii.Table("MarketBoardDataTable", columnsCount, ImGuiTableFlags.Borders);
@@ -1180,22 +1220,22 @@ public unsafe partial class AutoRetainerWork
                 if (isAnyHQ)
                 {
                     ImGui.TableNextColumn();
-                    ImGui.Text(listing.IsHq ? "√" : string.Empty);
+                    ImGui.TextUnformatted(listing.IsHq ? "√" : string.Empty);
                 }
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{listing.Quantity}");
+                ImGui.TextUnformatted($"{listing.Quantity}");
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{FormatNumber(listing.SalePrice)}");
+                ImGui.TextUnformatted($"{listing.SalePrice.ToChineseString()}");
                 ClickToCopy(listing.SalePrice.ToString());
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{listing.BuyerName}");
+                ImGui.TextUnformatted($"{listing.BuyerName}");
                 ClickToCopy(listing.BuyerName);
 
                 ImGui.TableNextColumn();
-                ImGui.Text($"{listing.PurchaseTime}");
+                ImGui.TextUnformatted($"{listing.PurchaseTime}");
             }
         }
 
@@ -1214,15 +1254,15 @@ public unsafe partial class AutoRetainerWork
 
             var isItemHQ = slotData->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality);
 
-            var itemIcon = DService.Texture
+            var itemIcon = DService.Instance().Texture
                                    .GetFromGameIcon(new(itemData.Icon, isItemHQ))
                                    .GetWrapOrDefault();
             if (itemIcon == null) return;
 
             using var id   = ImRaii.PushId($"{SourceUpshelfType}_{SourceUpshelfSlot}");
-            using var font = FontManager.UIFont120.Push();
+            using var font = FontManager.Instance().UIFont120.Push();
 
-            using (FontManager.UIFont80.Push())
+            using (FontManager.Instance().UIFont80.Push())
             {
                 if (ImGuiOm.ButtonSelectable(LuminaWrapper.GetAddonText(2366)))
                     IsNeedToDrawMarketUpshelfWindow = false;
@@ -1230,15 +1270,15 @@ public unsafe partial class AutoRetainerWork
 
             ImGui.Separator();
             ImGui.Spacing();
-            
+
             ImGui.Image(itemIcon.Handle, ManualUnitPriceImageSize with { X = ManualUnitPriceImageSize.Y });
 
             ImGui.SameLine();
+
             using (ImRaii.Group())
-            {
-                using (FontManager.UIFont160.Push())
-                    ImGui.Text($"{itemData.Name.ExtractText()}" + (isItemHQ ? "\ue03c" : string.Empty));
-            }
+            using (FontManager.Instance().UIFont160.Push())
+                ImGui.TextUnformatted($"{itemData.Name.ToString()}" + (isItemHQ ? "\ue03c" : string.Empty));
+
             ManualUnitPriceImageSize = ImGui.GetItemRectSize();
 
             ImGui.AlignTextToFramePadding();
@@ -1258,7 +1298,7 @@ public unsafe partial class AutoRetainerWork
             ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{LuminaWrapper.GetAddonText(6936)}:");
 
             ImGui.SameLine();
-            ImGui.Text($"{FormatNumber(UpshelfQuantityInput * UpshelfUnitPriceInput)}");
+            ImGui.TextUnformatted($"{(UpshelfQuantityInput * UpshelfUnitPriceInput).ToChineseString()}");
 
             ImGui.Separator();
 
@@ -1287,32 +1327,33 @@ public unsafe partial class AutoRetainerWork
         private static void OnRetainerSellList(AddonEvent type, AddonArgs args)
         {
             // 因为有模特存在
-            if (!DService.Condition[ConditionFlag.OccupiedSummoningBell]) return;
+            if (!DService.Instance().Condition[ConditionFlag.OccupiedSummoningBell]) return;
 
             switch (type)
             {
                 case AddonEvent.PostDraw:
                     IsNeedToDrawMarketListWindow = true;
-                    
+
                     if (RetainerSellList != null)
                     {
                         var listComponent = RetainerSellList->GetComponentListById(11);
+
                         if (listComponent != null)
                         {
                             for (var i = 0; i < listComponent->GetItemCount(); i++)
                             {
                                 var item = listComponent->GetItemRenderer(i);
                                 if (item == null || !item->OwnerNode->IsVisible()) continue;
-                        
+
                                 item->OwnerNode->ToggleVisibility(false);
                             }
                         }
                     }
-                    
+
                     break;
                 case AddonEvent.PreFinalize:
                     IsNeedToDrawMarketListWindow = false;
-                    
+
                     IsDisplayingTooltip = false;
                     AtkStage.Instance()->HideTooltip(ScreenText->Id);
                     break;
@@ -1322,13 +1363,13 @@ public unsafe partial class AutoRetainerWork
         // 出售界面
         private static void OnRetainerSell(AddonEvent type, AddonArgs args)
         {
-            if (!DService.Condition[ConditionFlag.OccupiedSummoningBell]) return;
-            if (!IsAddonAndNodesReady(args.Addon.ToAtkUnitBase())) return;
-            Callback(args.Addon, true, 0);
+            if (!DService.Instance().Condition[ConditionFlag.OccupiedSummoningBell]) return;
+            if (!args.Addon.ToStruct()->IsAddonAndNodesReady()) return;
+            args.Addon.ToStruct()->Callback(0);
         }
 
         // 当前市场数据获取
-        private static void OnOfferingReceived(IMarketBoardCurrentOfferings data) => 
+        private static void OnOfferingReceived(IMarketBoardCurrentOfferings data) =>
             PriceCacheManager.OnOfferingReceived(data);
 
         // 历史交易数据获取
@@ -1337,7 +1378,7 @@ public unsafe partial class AutoRetainerWork
             if (history.ItemId != HistoryListings.Key)
                 HistoryListings = new(history.ItemId, []);
             HistoryListings.Value.AddRange(history.HistoryListings);
-            
+
             PriceCacheManager.OnHistoryReceived(history);
         }
 
@@ -1394,15 +1435,15 @@ public unsafe partial class AutoRetainerWork
                 .ForEach(index =>
                 {
                     TaskHelper.Enqueue(() =>
-                    {
-                        if (InterruptByConflictKey(TaskHelper, Module)) return true;
-                        return EnterRetainer(index);
-                    }, $"选择进入 {index} 号雇员");
+                                       {
+                                           if (InterruptByConflictKey(TaskHelper, Module)) return true;
+                                           return EnterRetainer(index);
+                                       }, $"选择进入 {index} 号雇员");
                     TaskHelper.Enqueue(() =>
-                    {
-                        if (InterruptByConflictKey(TaskHelper, Module)) return true;
-                        return IsAddonAndNodesReady(SelectString) && RetainerManager.Instance()->GetActiveRetainer() != null;
-                    }, $"等待接收 {index} 号雇员的数据");
+                                       {
+                                           if (InterruptByConflictKey(TaskHelper, Module)) return true;
+                                           return SelectString->IsAddonAndNodesReady() && RetainerManager.Instance()->GetActiveRetainer() != null;
+                                       }, $"等待接收 {index} 号雇员的数据");
                     TaskHelper.Enqueue(() =>
                     {
                         if (InterruptByConflictKey(TaskHelper, Module)) return true;
@@ -1416,8 +1457,8 @@ public unsafe partial class AutoRetainerWork
                     TaskHelper.Enqueue(() =>
                     {
                         if (InterruptByConflictKey(TaskHelper, Module)) return;
-                        if (!IsAddonAndNodesReady(RetainerSellList)) return;
-                        Callback(RetainerSellList, true, -1);
+                        if (!RetainerSellList->IsAddonAndNodesReady()) return;
+                        RetainerSellList->Callback(-1);
                     }, "单一雇员改价完成, 退出出售品列表界面");
                     TaskHelper.Enqueue(() =>
                     {
@@ -1466,34 +1507,35 @@ public unsafe partial class AutoRetainerWork
                 if (!isPriceCached)
                 {
                     var isNothingSearched = InfoProxyItemSearch.Instance()->SearchItemId == 0;
-                    
+
                     TaskHelper.Enqueue(() =>
-                    {
-                        if (InterruptByConflictKey(TaskHelper, Module)) return;
-                        RequestMarketItemData(itemID);
-                    }, $"请求雇员 {retainer->NameString} {slotIndex} 号位置处 {itemName} 的市场价格数据", weight: 2);
+                                       {
+                                           if (InterruptByConflictKey(TaskHelper, Module)) return;
+                                           RequestMarketItemData(itemID);
+                                       }, $"请求雇员 {retainer->NameString} {slotIndex} 号位置处 {itemName} 的市场价格数据", weight: 2);
                     if (isNothingSearched)
-                        TaskHelper.DelayNext(1000, "初始无数据, 等待 1 秒", weight: 2);
+                        TaskHelper.DelayNext(1000, "初始无数据, 等待 1 秒", 2);
                     TaskHelper.Enqueue(() =>
-                    {
-                        if (InterruptByConflictKey(TaskHelper, Module)) return true;
-                        if (IsMarketStuck()) return false;
-                        
-                        return IsMarketItemDataReady(itemID);
-                    }, $"等待 {itemName} 市场价格数据完全到达", weight: 2);
+                                       {
+                                           if (InterruptByConflictKey(TaskHelper, Module)) return true;
+                                           if (IsMarketStuck()) return false;
+
+                                           return IsMarketItemDataReady(itemID);
+                                       }, $"等待 {itemName} 市场价格数据完全到达", weight: 2);
                     TaskHelper.Enqueue(() =>
                     {
                         if (InterruptByConflictKey(TaskHelper, Module)) return;
                         // 什么价格数据都没有, 设置为 0
-                        if (!PriceCacheManager.TryGetPriceCache(itemID, isItemHQ, out price)) 
+                        if (!PriceCacheManager.TryGetPriceCache(itemID, isItemHQ, out price))
                             price = 0;
+                        
                         EnqueuePriceAdjustSingleItem(slotIndex, price, forcePrice);
                     }, "由单一物品改价接管后续逻辑", weight: 2);
                     return;
                 }
 
                 TaskHelper.Enqueue(() => EnqueuePriceAdjustSingleItem(slotIndex, price, forcePrice), "由单一物品改价接管后续逻辑", weight: 2);
-            }, weight: 1);
+            }, $"检查当前市场第 {slotIndex} 栏的物品数据, 强制价格: {forcePrice}", weight: 1);
         }
 
         private static void EnqueuePriceAdjustSingleItem(ushort slot, uint marketPrice, uint forcePrice = 0)
@@ -1523,7 +1565,7 @@ public unsafe partial class AutoRetainerWork
 
             SetRetainerMarketItemPrice(slot, modifiedPrice);
             NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID, itemMarketData.Value.Item.IsHQ,
-                                          itemMarketData.Value.Price, modifiedPrice);
+                                          itemMarketData.Value.Price,       modifiedPrice);
             return;
 
             // 采取意外情况逻辑
@@ -1542,23 +1584,23 @@ public unsafe partial class AutoRetainerWork
                 {
                     case AbortBehavior.改价至最小值:
                         SetRetainerMarketItemPrice(slot, (uint)itemConfig.PriceMinimum);
-                        NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID, 
+                        NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID,
                                                       itemMarketData.Value.Item.IsHQ,
-                                                      itemMarketData.Value.Price, 
+                                                      itemMarketData.Value.Price,
                                                       (uint)itemConfig.PriceMinimum);
                         break;
                     case AbortBehavior.改价至预期值:
                         SetRetainerMarketItemPrice(slot, (uint)itemConfig.PriceExpected);
-                        NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID, 
+                        NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID,
                                                       itemMarketData.Value.Item.IsHQ,
-                                                      itemMarketData.Value.Price, 
+                                                      itemMarketData.Value.Price,
                                                       (uint)itemConfig.PriceExpected);
                         break;
                     case AbortBehavior.改价至最高值:
                         SetRetainerMarketItemPrice(slot, (uint)itemConfig.PriceMaximum);
-                        NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID, 
+                        NotifyPriceAdjustSuccessfully(itemMarketData.Value.Item.ItemID,
                                                       itemMarketData.Value.Item.IsHQ,
-                                                      itemMarketData.Value.Price, 
+                                                      itemMarketData.Value.Price,
                                                       (uint)itemConfig.PriceMaximum);
                         break;
                     case AbortBehavior.收回至雇员:
@@ -1576,9 +1618,9 @@ public unsafe partial class AutoRetainerWork
                                 return false;
 
                             var foundItem = foundItems.FirstOrDefault();
-                            return OpenInventoryItemContext(foundItem);
+                            return foundItem.OpenContext();
                         }, "找到物品并打开其右键菜单", weight: 3);
-                        TaskHelper.Enqueue(() => IsAddonAndNodesReady(InfosOm.ContextMenuXIV),          "等待右键菜单出现", weight: 3);
+                        TaskHelper.Enqueue(() => ContextMenuXIV->IsAddonAndNodesReady(),             "等待右键菜单出现",  weight: 3);
                         TaskHelper.Enqueue(() => ClickContextMenu(LuminaWrapper.GetAddonText(5480)), "出售物品至系统商店", weight: 3);
                         break;
                 }
@@ -1595,7 +1637,7 @@ public unsafe partial class AutoRetainerWork
         #region 操作
 
         /// <summary>
-        /// 将当前雇员市场售卖物品收回背包/雇员
+        ///     将当前雇员市场售卖物品收回背包/雇员
         /// </summary>
         /// <param name="slot"></param>
         /// <param name="isInventory">若为 True 则为收回背包, 否则则为收回雇员背包</param>
@@ -1620,7 +1662,7 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 设定当前雇员市场售卖物品价格
+        ///     设定当前雇员市场售卖物品价格
         /// </summary>
         private static bool SetRetainerMarketItemPrice(ushort slot, uint price)
         {
@@ -1634,12 +1676,13 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 上架物品至市场
+        ///     上架物品至市场
         /// </summary>
         private static void UpshelfMarketItem(InventoryType srcType, ushort srcSlot, uint quantity, uint unitPrice, short targetSlot = -1)
         {
             if (targetSlot >= 20) return;
             ushort slot;
+
             if (targetSlot < 0)
             {
                 if (!TryGetFirstEmptyRetainerMarketSlot(out slot)) return;
@@ -1654,7 +1697,7 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 获取当前雇员市场售卖物品数据
+        ///     获取当前雇员市场售卖物品数据
         /// </summary>
         private static (ItemKey Item, uint Price)? GetRetainerMarketItem(ushort slot)
         {
@@ -1674,7 +1717,7 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 获取当前雇员市场售卖物品价格
+        ///     获取当前雇员市场售卖物品价格
         /// </summary>
         private static uint GetRetainerMarketPrice(ushort slot)
         {
@@ -1687,7 +1730,7 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 获取当前市场物品数据
+        ///     获取当前市场物品数据
         /// </summary>
         private static void RequestMarketItemData(uint itemID)
         {
@@ -1703,7 +1746,7 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 当前市场物品数据是否已就绪
+        ///     当前市场物品数据是否已就绪
         /// </summary>
         private static bool IsMarketItemDataReady(uint itemID)
         {
@@ -1722,17 +1765,17 @@ public unsafe partial class AutoRetainerWork
                                .Where(x => x.ItemId == proxy->SearchItemId && x.UnitPrice != 0)
                                .ToList().Count != proxy->ListingCount)
                 return false;
-            
+
             return proxy->EntryCount switch
             {
                 > 10 => proxy->ListingCount >= 10,
-                0 => true,
-                _ => proxy->ListingCount != 0
+                0    => true,
+                _    => proxy->ListingCount != 0
             };
         }
 
         /// <summary>
-        /// 尝试获取雇员市场售卖列表中首个为空的槽位
+        ///     尝试获取雇员市场售卖列表中首个为空的槽位
         /// </summary>
         /// <returns></returns>
         private static bool TryGetFirstEmptyRetainerMarketSlot(out ushort slot)
@@ -1757,7 +1800,7 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 是否满足任何意外情况
+        ///     是否满足任何意外情况
         /// </summary>
         /// <returns>正常/不需要修改价格为 False</returns>
         private static bool IsAnyAbortConditionsMet(
@@ -1787,20 +1830,20 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 获取修改后价格结果
+        ///     获取修改后价格结果
         /// </summary>
         private static uint GetModifiedPrice(ItemConfig config, uint marketPrice) =>
             (uint)(config.AdjustBehavior switch
-            {
-                AdjustBehavior.固定值 => Math.Max(
-                    0, marketPrice - config.AdjustValues[AdjustBehavior.固定值]),
-                AdjustBehavior.百分比 => Math.Max(
-                    0, marketPrice * (1 - (config.AdjustValues[AdjustBehavior.百分比] / 100))),
-                _ => marketPrice
-            });
+                      {
+                          AdjustBehavior.固定值 => Math.Max(
+                              0, marketPrice - config.AdjustValues[AdjustBehavior.固定值]),
+                          AdjustBehavior.百分比 => Math.Max(
+                              0, marketPrice * (1 - config.AdjustValues[AdjustBehavior.百分比] / 100)),
+                          _ => marketPrice
+                      });
 
         /// <summary>
-        /// 发送改价成功通知信息
+        ///     发送改价成功通知信息
         /// </summary>
         private static void NotifyPriceAdjustSuccessfully(uint itemID, bool isHQ, uint origPrice, uint modifiedPrice)
         {
@@ -1809,8 +1852,8 @@ public unsafe partial class AutoRetainerWork
             var itemPayload = new SeStringBuilder().AddItemLink(itemID, isHQ).Build();
 
             var priceChangedValue = (long)modifiedPrice - origPrice;
-    
-            var priceChangeText = FormatNumber(priceChangedValue);
+
+            var priceChangeText = priceChangedValue.ToChineseString();
             if (!priceChangeText.StartsWith('-'))
                 priceChangeText = $"+{priceChangeText}";
 
@@ -1820,14 +1863,14 @@ public unsafe partial class AutoRetainerWork
             Chat(GetSLoc("AutoRetainerWork-PriceAdjust-PriceAdjustSuccessfully",
                          itemPayload,
                          RetainerManager.Instance()->GetActiveRetainer()->NameString,
-                         FormatNumber(origPrice),
-                         FormatNumber(modifiedPrice),
+                         origPrice.ToChineseString(),
+                         modifiedPrice.ToChineseString(),
                          priceChangeText,
                          priceChangeRateText));
         }
 
         /// <summary>
-        /// 发送意外情况检测通知信息
+        ///     发送意外情况检测通知信息
         /// </summary>
         private static void NotifyAbortCondition(uint itemID, bool isHQ, AbortCondition condition)
         {
@@ -1835,13 +1878,13 @@ public unsafe partial class AutoRetainerWork
 
             var itemPayload = new SeStringBuilder().AddItemLink(itemID, isHQ).Build();
             Chat(GetSLoc("AutoRetainerWork-PriceAdjust-DetectAbortCondition",
-                                      itemPayload,
-                                      RetainerManager.Instance()->GetActiveRetainer()->NameString,
-                                      new SeStringBuilder().AddUiForeground(condition.ToString(), 60).Build()));
+                         itemPayload,
+                         RetainerManager.Instance()->GetActiveRetainer()->NameString,
+                         new SeStringBuilder().AddUiForeground(condition.ToString(), 60).Build()));
         }
 
         /// <summary>
-        /// 获取当前雇员市场为同一物品的全部槽位
+        ///     获取当前雇员市场为同一物品的全部槽位
         /// </summary>
         private static bool TryGetSameItemSlots(uint itemID, out List<ushort> slots)
         {
@@ -1857,7 +1900,7 @@ public unsafe partial class AutoRetainerWork
             {
                 var slot = container->GetInventorySlot(i);
                 if (slot == null || slot->ItemId != itemID) continue;
-                
+
                 slots.Add((ushort)i);
             }
 
@@ -1865,13 +1908,13 @@ public unsafe partial class AutoRetainerWork
         }
 
         /// <summary>
-        /// 尝试获取物品最大可上架数量
+        ///     尝试获取物品最大可上架数量
         /// </summary>
         private static bool TryGetItemUpshelfCountLimit(InventoryItem item, out uint count)
         {
             count = 0;
             if (item.ItemId == 0) return false;
-            
+
             if (!LuminaGetter.TryGetRow<Item>(item.ItemId, out var itemData)) return false;
 
             var itemKey    = new ItemKey(item.ItemId, item.Flags.HasFlag(InventoryItem.ItemFlags.HighQuality));
@@ -1880,30 +1923,19 @@ public unsafe partial class AutoRetainerWork
             var itemStackSize     = itemData.StackSize;
             var defaultStackLimit = itemStackSize           == 9999 ? 9999U : 99U;
             var upshelfLimit      = itemConfig.UpshelfCount > 0 ? (uint)itemConfig.UpshelfCount : defaultStackLimit;
-            
+
             count = (uint)Math.Min(item.Quantity, upshelfLimit);
             return true;
         }
 
         /// <summary>
-        /// 根据语言格式化数字
-        /// </summary>
-        private static string FormatNumber(long number)
-        {
-            if (LanguageManager.CurrentLanguage is not ("ChineseSimplified" or "ChineseTraditional"))
-                return number.ToString(CultureInfo.InvariantCulture);
-
-            return FormatNumberByChineseNotation(number, LanguageManager.CurrentLanguage);
-        }
-
-        /// <summary>
-        /// 当前市场是否正在重新请求
+        ///     当前市场是否正在重新请求
         /// </summary>
         /// <returns></returns>
         private static bool IsMarketStuck()
         {
             if (!ModuleManager.TryGetModuleByName("AutoRefreshMarketSearchResult", out var module) || module == null) return false;
-            
+
             var type     = module.GetType();
             var property = type.GetProperty("IsMarketStuck", BindingFlags.Public | BindingFlags.Static);
 
@@ -1917,17 +1949,17 @@ public unsafe partial class AutoRetainerWork
             MoveToRetainerMarketHook?.Dispose();
             MoveToRetainerMarketHook = null;
 
-            DService.AddonLifecycle.UnregisterListener(OnRetainerSell);
-            DService.AddonLifecycle.UnregisterListener(OnRetainerSellList);
+            DService.Instance().AddonLifecycle.UnregisterListener(OnRetainerSell);
+            DService.Instance().AddonLifecycle.UnregisterListener(OnRetainerSellList);
 
-            WindowManager.Draw -= DrawMarketListWindow;
-            IsNeedToDrawMarketListWindow = false;
+            WindowManager.Draw           -= DrawMarketListWindow;
+            IsNeedToDrawMarketListWindow =  false;
 
-            WindowManager.Draw -= DrawUpshelfWindow;
-            IsNeedToDrawMarketUpshelfWindow = false;
+            WindowManager.Draw              -= DrawUpshelfWindow;
+            IsNeedToDrawMarketUpshelfWindow =  false;
 
-            DService.MarketBoard.HistoryReceived -= OnHistoryReceived;
-            DService.MarketBoard.OfferingsReceived -= OnOfferingReceived;
+            DService.Instance().MarketBoard.HistoryReceived   -= OnHistoryReceived;
+            DService.Instance().MarketBoard.OfferingsReceived -= OnOfferingReceived;
 
             TaskHelper?.Abort();
             TaskHelper?.Dispose();
@@ -2032,7 +2064,7 @@ public unsafe partial class AutoRetainerWork
             public static bool TryGetPriceCache(uint itemID, bool isHQ, out uint price)
             {
                 price = 0;
-                var cacheKey = CacheKeys.Create(itemID, isHQ);
+                var cacheKey         = CacheKeys.Create(itemID, isHQ);
                 var oppositeCacheKey = CacheKeys.Create(itemID, !isHQ);
 
                 // 清理过期缓存
@@ -2040,9 +2072,9 @@ public unsafe partial class AutoRetainerWork
                 HistoryPriceCache.RemoveExpiredEntries(TimeSpan.FromMinutes(CacheExpirationMinutes));
 
                 // 按优先级尝试获取价格
-                return (CurrentPriceCache.TryGetPrice(cacheKey, out price) ||
+                return (CurrentPriceCache.TryGetPrice(cacheKey,         out price) ||
                         CurrentPriceCache.TryGetPrice(oppositeCacheKey, out price) ||
-                        HistoryPriceCache.TryGetPrice(cacheKey, out price) ||
+                        HistoryPriceCache.TryGetPrice(cacheKey,         out price) ||
                         HistoryPriceCache.TryGetPrice(oppositeCacheKey, out price)) &&
                        price != 0;
             }
@@ -2065,7 +2097,7 @@ public unsafe partial class AutoRetainerWork
 
             private class CacheEntry
             {
-                public uint Price { get; init; }
+                public uint     Price          { get; init; }
                 public DateTime LastUpdateTime { get; init; }
             }
 
@@ -2075,9 +2107,9 @@ public unsafe partial class AutoRetainerWork
             {
                 var now = DateTime.Now;
                 var expiredKeys = data
-                    .Where(kvp => now - kvp.Value.LastUpdateTime > expirationTime)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
+                                  .Where(kvp => now - kvp.Value.LastUpdateTime > expirationTime)
+                                  .Select(kvp => kvp.Key)
+                                  .ToList();
 
                 foreach (var key in expiredKeys)
                     data.Remove(key);
@@ -2089,6 +2121,7 @@ public unsafe partial class AutoRetainerWork
             public bool TryGetPrice(string key, out uint price)
             {
                 price = 0;
+
                 if (data.TryGetValue(key, out var entry))
                 {
                     price = entry.Price;
@@ -2102,7 +2135,7 @@ public unsafe partial class AutoRetainerWork
             {
                 data[key] = new CacheEntry
                 {
-                    Price = price,
+                    Price          = price,
                     LastUpdateTime = DateTime.Now
                 };
                 LastUpdateTime = DateTime.Now;

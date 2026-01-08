@@ -32,16 +32,16 @@ public unsafe class InstantLogout : DailyModuleBase
         SystemMenuExecuteHook ??= SystemMenuExecuteSig.GetHook<SystemMenuExecuteDelegate>(SystemMenuExecuteDetour);
         SystemMenuExecuteHook.Enable();
 
-        AgentCloseMessageShowHook ??= DService.Hook.HookFromAddress<AgentShowDelegate>(
-            GetVFuncByName(AgentModule.Instance()->GetAgentByInternalId(AgentId.CloseMessage)->VirtualTable, "Show"),
+        AgentCloseMessageShowHook ??= DService.Instance().Hook.HookFromAddress<AgentShowDelegate>(
+            AgentModule.Instance()->GetAgentByInternalId(AgentId.CloseMessage)->VirtualTable->GetVFuncByName("Show"),
             AgentCloseMessageShowDetour);
         AgentCloseMessageShowHook.Enable();
 
-        ChatManager.RegPreExecuteCommandInner(OnPreExecuteCommandInner);
+        ChatManager.Instance().RegPreExecuteCommandInner(OnPreExecuteCommandInner);
     }
 
     protected override void Uninit() => 
-        ChatManager.Unreg(OnPreExecuteCommandInner);
+        ChatManager.Instance().Unreg(OnPreExecuteCommandInner);
 
     protected override void ConfigUI()
     {
@@ -94,7 +94,7 @@ public unsafe class InstantLogout : DailyModuleBase
 
     private static bool CheckCommand(string message, TextCommand command, TaskHelper taskHelper, Action<TaskHelper> action)
     {
-        if (message == command.Command.ExtractText() || message == command.Alias.ExtractText())
+        if (message == command.Command.ToString() || message == command.Alias.ToString())
         {
             action(taskHelper);
             return true;
@@ -104,16 +104,16 @@ public unsafe class InstantLogout : DailyModuleBase
     }
 
     private static void Logout(TaskHelper _) => 
-        RequestDutyNormal(167, DefaultOption);
+        ContentsFinderHelper.RequestDutyNormal(167, ContentsFinderHelper.DefaultOption);
 
     private static void Shutdown(TaskHelper taskHelper)
     {
         taskHelper.Enqueue(() => Logout(taskHelper));
         taskHelper.Enqueue(() =>
         {
-            if (DService.ClientState.IsLoggedIn) return false;
+            if (DService.Instance().ClientState.IsLoggedIn) return false;
 
-            ChatManager.SendMessage("/xlkill");
+            ChatManager.Instance().SendMessage("/xlkill");
             return true;
         });
     }

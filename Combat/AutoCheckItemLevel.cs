@@ -25,9 +25,9 @@ public unsafe class AutoCheckItemLevel : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 20_000 };
+        TaskHelper ??= new() { TimeoutMS = 20_000 };
 
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
     }
 
     private void OnZoneChanged(ushort zone)
@@ -40,7 +40,7 @@ public unsafe class AutoCheckItemLevel : DailyModuleBase
             GameState.ContentFinderConditionData.ContentMemberType.Value.MeleesPerParty == 0)
             return;
         
-        TaskHelper.Enqueue(() => !BetweenAreas && DService.ObjectTable.LocalPlayer != null, "WaitForEnteringDuty");
+        TaskHelper.Enqueue(() => !BetweenAreas && DService.Instance().ObjectTable.LocalPlayer != null, "WaitForEnteringDuty");
         TaskHelper.Enqueue(() => CheckMembersItemLevel([LocalPlayerState.EntityID]));
     }
 
@@ -92,7 +92,7 @@ public unsafe class AutoCheckItemLevel : DailyModuleBase
             TaskHelper.Enqueue(() =>
             {
                 if (member.Object == null) return false;
-                if (!TryGetInventoryItems([InventoryType.Examine], _ => true, out var list)) return false;
+                if (!InventoryType.Examine.TryGetItems(_ => true, out var list)) return false;
 
                 while (list.Count < 13)
                     list.Add(new());
@@ -162,7 +162,7 @@ public unsafe class AutoCheckItemLevel : DailyModuleBase
         var ssb = new SeStringBuilder();
 
         ssb.AddUiForeground(25)
-           .Add(new PlayerPayload(partyMember.Name.ExtractText(), partyMember.Object->HomeWorld))
+           .Add(new PlayerPayload(partyMember.Name.ToString(), partyMember.Object->HomeWorld))
            .AddUiForegroundOff();
         
         ssb.Append($" ({LuminaWrapper.GetJobName(partyMember.Object->ClassJob)})");
@@ -185,5 +185,5 @@ public unsafe class AutoCheckItemLevel : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
 }

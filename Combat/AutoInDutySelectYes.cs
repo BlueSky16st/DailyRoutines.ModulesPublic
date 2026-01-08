@@ -23,7 +23,7 @@ public class AutoInDutySelectYes : DailyModuleBase
     ]);
 
     protected override void Init() => 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonSelectYesno);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonSelectYesno);
 
     private static unsafe void OnAddonSelectYesno(AddonEvent type, AddonArgs args)
     {
@@ -32,7 +32,7 @@ public class AutoInDutySelectYes : DailyModuleBase
         var addon = (AddonSelectYesno*)args.Addon.Address;
         if (addon == null) return;
         
-        var text = addon->PromptText->NodeText.ExtractText();
+        var text = addon->PromptText->NodeText.ToString();
         if (string.IsNullOrWhiteSpace(text) || Blacklist.ContainsAny(text))
             return;
         
@@ -40,5 +40,5 @@ public class AutoInDutySelectYes : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddonSelectYesno);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSelectYesno);
 }

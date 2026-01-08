@@ -21,7 +21,7 @@ public class AutoUfoCatcher : DailyModuleBase
     protected override void Init()
     {
         TaskHelper ??= new();
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "UfoCatcher", OnAddonSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "UfoCatcher", OnAddonSetup);
     }
 
     protected override void ConfigUI() => ConflictKeyText();
@@ -33,18 +33,17 @@ public class AutoUfoCatcher : DailyModuleBase
         TaskHelper.Enqueue(ClickGameButton);
     }
 
-    private unsafe bool? WaitSelectStringAddon()
+    private unsafe bool WaitSelectStringAddon()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
-        return TryGetAddonByName<AddonSelectString>("SelectString", out var addon) &&
-               IsAddonAndNodesReady(&addon->AtkUnitBase) && ClickSelectString(0);
+        return SelectString->IsAddonAndNodesReady() && ClickSelectString(0);
     }
 
-    private unsafe bool? ClickGameButton()
+    private unsafe bool ClickGameButton()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
 
-        if (!IsAddonAndNodesReady(UFOCatcher))
+        if (!UFOCatcher->IsAddonAndNodesReady())
             return false;
 
         var button = UFOCatcher->GetComponentButtonById(2);
@@ -52,7 +51,7 @@ public class AutoUfoCatcher : DailyModuleBase
 
         UFOCatcher->IsVisible = false;
 
-        Callback(UFOCatcher, true, 11, 3, 0);
+        UFOCatcher->Callback(11, 3, 0);
 
         // 只是纯粹因为游玩动画太长了而已
         TaskHelper.DelayNext(5000);
@@ -60,13 +59,13 @@ public class AutoUfoCatcher : DailyModuleBase
         return true;
     }
 
-    private unsafe bool? StartAnotherRound()
+    private unsafe bool StartAnotherRound()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
         if (OccupiedInEvent) return false;
         
         var machineTarget = TargetManager.PreviousTarget;
-        var machine = machineTarget.Name.TextValue.Contains(LuminaGetter.GetRow<EObjName>(2005036)!.Value.Singular.ExtractText(),
+        var machine = machineTarget.Name.TextValue.Contains(LuminaGetter.GetRow<EObjName>(2005036)!.Value.Singular.ToString(),
                                                             StringComparison.OrdinalIgnoreCase)
                           ? (GameObject*)machineTarget.Address
                           : null;
@@ -81,5 +80,5 @@ public class AutoUfoCatcher : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddonSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSetup);
 }

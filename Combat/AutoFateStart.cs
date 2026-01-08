@@ -20,7 +20,7 @@ public class AutoFateStart : DailyModuleBase
     private static bool IsOnUpdate;
     
     protected override void Init() => 
-        FrameworkManager.Reg(OnUpdate, throttleMS: 1000);
+        FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 1000);
 
     private static unsafe void OnUpdate(IFramework _)
     {
@@ -28,11 +28,14 @@ public class AutoFateStart : DailyModuleBase
         
         try
         {
-            if (GameState.TerritoryIntendedUse != TerritoryIntendedUse.Overworld || GameState.IsInPVPArea) return;
+            if (GameState.TerritoryIntendedUse != TerritoryIntendedUse.Overworld ||
+                GameState.IsInPVPArea                                            ||
+                LocalPlayerState.ClassJobData.DohDolJobIndex != -1)
+                return;
             
             IsOnUpdate = true;
             
-            foreach (var obj in DService.ObjectTable)
+            foreach (var obj in DService.Instance().ObjectTable)
             {
                 if (obj.ObjectKind != ObjectKind.BattleNpc) continue;
 
@@ -40,10 +43,10 @@ public class AutoFateStart : DailyModuleBase
                 if (gameObj == null || gameObj->NamePlateIconId != 60093 || gameObj->FateId == 0) continue;
 
                 if (!LuminaGetter.TryGetRow<Fate>(gameObj->FateId, out var fateData)) continue;
-                if (!Throttler.Throttle($"AutoFateStart-{fateData.Name.ExtractText()}", 1_000)) continue;
+                if (!Throttler.Throttle($"AutoFateStart-{fateData.Name.ToString()}", 1_000)) continue;
             
-                ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.FateStart, gameObj->FateId, gameObj->EntityId);
-                Chat(GetLoc("AutoFateStart-StartNotice", fateData.Name.ExtractText(), gameObj->NameString));
+                ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.FateStart, gameObj->FateId, gameObj->EntityId);
+                Chat(GetLoc("AutoFateStart-StartNotice", fateData.Name.ToString(), gameObj->NameString));
                 break;
             }
         }
@@ -55,7 +58,7 @@ public class AutoFateStart : DailyModuleBase
 
     protected override void Uninit()
     {
-        FrameworkManager.Unreg(OnUpdate);
+        FrameworkManager.Instance().Unreg(OnUpdate);
         IsOnUpdate = false;
     }
 }

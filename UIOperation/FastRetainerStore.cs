@@ -25,11 +25,11 @@ public unsafe class FastRetainerStore : DailyModuleBase
     {
         TaskHelper ??= new();
 
-        DService.ContextMenu.OnMenuOpened += OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened += OnContextMenuOpened;
     }
 
     protected override void Uninit() => 
-        DService.ContextMenu.OnMenuOpened -= OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnContextMenuOpened;
 
     private void OnContextMenuOpened(IMenuOpenedArgs args)
     {
@@ -55,13 +55,13 @@ public unsafe class FastRetainerStore : DailyModuleBase
         return;
 
         bool IsRetainerInventoryOpen()
-            => IsAddonAndNodesReady(InventoryRetainer) ||
-               IsAddonAndNodesReady(InventoryRetainerLarge);
+            => InventoryRetainer->IsAddonAndNodesReady() ||
+               InventoryRetainerLarge->IsAddonAndNodesReady();
 
         bool IsPlayerInventoryOpen()
-            => IsAddonAndNodesReady(Inventory)      ||
-               IsAddonAndNodesReady(InventoryLarge) ||
-               IsAddonAndNodesReady(InventoryExpansion);
+            => Inventory->IsAddonAndNodesReady()      ||
+               InventoryLarge->IsAddonAndNodesReady() ||
+               InventoryExpansion->IsAddonAndNodesReady();
     }
 
     private void ExecuteMoveAll(uint itemID, bool isHQ, bool isCollectable, bool storeToRetainer)

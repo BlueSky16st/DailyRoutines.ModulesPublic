@@ -9,6 +9,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -49,13 +50,13 @@ public unsafe class FastCustomDeliveriesInfo : DailyModuleBase
 
     protected override void Init()
     {
-        AgentSatisfactionListReceiveEventHook ??= DService.Hook.HookFromAddress<AgentReceiveEventDelegate>(
-            GetVFuncByName(AgentModule.Instance()->GetAgentByInternalId(AgentId.SatisfactionList)->VirtualTable, "ReceiveEvent"),
+        AgentSatisfactionListReceiveEventHook ??= DService.Instance().Hook.HookFromAddress<AgentReceiveEventDelegate>(
+            AgentModule.Instance()->GetAgentByInternalId(AgentId.SatisfactionList)->VirtualTable->GetVFuncByName("ReceiveEvent"),
             AgentSatisfactionListReceiveEventDetour);
         AgentSatisfactionListReceiveEventHook.Enable();
 
         Overlay    ??= new(this);
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper ??= new() { TimeoutMS = 30_000 };
     }
 
     protected override void OverlayUI()
@@ -66,7 +67,7 @@ public unsafe class FastCustomDeliveriesInfo : DailyModuleBase
             return;
         }
 
-        using var font = FontManager.UIFont.Push();
+        using var font = FontManager.Instance().UIFont.Push();
 
         if (ImGui.IsWindowAppearing() || IsNeedToRefresh)
         {
@@ -74,11 +75,11 @@ public unsafe class FastCustomDeliveriesInfo : DailyModuleBase
             ImGui.SetWindowPos(ImGui.GetMousePos());
         }
         
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), LuminaGetter.GetRow<Addon>(8813)!.Value.Text.ExtractText());
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), LuminaGetter.GetRow<Addon>(8813)!.Value.Text.ToString());
         using (ImRaii.PushIndent())
         {
-            using (FontManager.UIFont120.Push())
-                ImGui.Text(SelectedInfo?.Value.GetRow().Npc.Value.Singular.ExtractText());
+            using (FontManager.Instance().UIFont120.Push())
+                ImGui.TextUnformatted(SelectedInfo?.Value.GetRow().Npc.Value.Singular.ToString());
         }
 
         ImGui.Separator();
@@ -125,7 +126,7 @@ public unsafe class FastCustomDeliveriesInfo : DailyModuleBase
             isNeedToClose = true;
         }
         
-        if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(66)!.Value.Text.ExtractText()))
+        if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(66)!.Value.Text.ToString()))
         {
             var instance = AgentMap.Instance();
 
@@ -138,7 +139,7 @@ public unsafe class FastCustomDeliveriesInfo : DailyModuleBase
             isNeedToClose = true;
         }
         
-        if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(1219)!.Value.Text.ExtractText()) | isNeedToClose)
+        if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(1219)!.Value.Text.ToString()) | isNeedToClose)
         {
             Overlay.IsOpen = false;
             SelectedInfo   = null;
@@ -179,8 +180,8 @@ public unsafe class FastCustomDeliveriesInfo : DailyModuleBase
     {
         // 不在天穹街 → 先去伊修加德基础层
         TaskHelper.Enqueue(MovementManager.TeleportFirmament);
-        TaskHelper.Enqueue(() => DService.ClientState.TerritoryType == 886  && IsScreenReady() &&
-                                 !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
+        TaskHelper.Enqueue(() => GameState.TerritoryType == 886             && UIModule.IsScreenReady() &&
+                                 !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
     }
 
     private record CustomDeliveryInfo(uint Index, string Name, uint Zone, Vector3 Position)

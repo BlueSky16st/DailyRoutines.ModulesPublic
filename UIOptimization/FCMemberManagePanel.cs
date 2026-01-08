@@ -52,7 +52,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
 
     protected override void Init()
     {
-        ContextTaskHelper ??= new() { TimeLimitMS = 3000 };
+        ContextTaskHelper ??= new() { TimeoutMS = 3000 };
 
         OpenFCMemberContextMenu ??=
             Marshal.GetDelegateForFunctionPointer<OpenFCMemberContextMenuDelegate>(OpenFCMemberContextMenuSig.ScanText());
@@ -66,17 +66,17 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
         Overlay.Flags &=  ~ImGuiWindowFlags.NoResize;
         Overlay.WindowName = Lang.Get("FCMemberManagePanelTitle");
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "FreeCompanyMember", OnAddonMember);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeCompanyMember", OnAddonMember);
-        if (FreeCompanyMember != null && IsAddonAndNodesReady(FreeCompanyMember)) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "FreeCompanyMember", OnAddonMember);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeCompanyMember", OnAddonMember);
+        if (FreeCompanyMember != null && FreeCompanyMember->IsAddonAndNodesReady()) 
             OnAddonMember(AddonEvent.PostSetup, null);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonYesno);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnAddonYesno);
     }
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonMember);
-        DService.AddonLifecycle.UnregisterListener(OnAddonYesno);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonMember);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonYesno);
 
         ContextTaskHelper?.Abort();
         ContextTaskHelper = null;
@@ -86,7 +86,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
 
     protected override void OverlayPreDraw()
     {
-        if (!DService.ClientState.IsLoggedIn) return;
+        if (!DService.Instance().ClientState.IsLoggedIn) return;
         
         if (FCTotalMembersCount == 0 && Throttler.Throttle("GetFCTotalMembersCount", 1_000))
         {
@@ -185,7 +185,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
             LuminaGetter.TryGetRow<OnlineStatus>(data.OnlineStatus, out var onlineStatusRow);
             if (data.OnlineStatus != 0)
             {
-                var onlineStatusIcon  = DService.Texture.GetFromGameIcon(new(onlineStatusRow.Icon)).GetWrapOrDefault();
+                var onlineStatusIcon  = DService.Instance().Texture.GetFromGameIcon(new(onlineStatusRow.Icon)).GetWrapOrDefault();
                 if (onlineStatusIcon != null)
                 {
                     var origPosY = ImGui.GetCursorPosY();
@@ -195,7 +195,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
                     ImGui.SameLine();
                 }
             }
-            ImGui.Text($"{data.Name}");
+            ImGui.TextUnformatted($"{data.Name}");
             
             ImGui.TableNextColumn();
             if (data.JobIcon != null)
@@ -206,10 +206,10 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
                 ImGui.SetCursorPosY(origPosY);
                 ImGui.SameLine();
             }
-            ImGui.Text(data.Job);
+            ImGui.TextUnformatted(data.Job);
             
             ImGui.TableNextColumn();
-            ImGui.Text(data.Location);
+            ImGui.TextUnformatted(data.Location);
             
             ImGui.TableNextColumn();
             using (ImRaii.Disabled())
@@ -237,10 +237,10 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
         }
         
         ImGui.TableNextColumn();
-        ImGui.Text(Lang.Get("Job"));
+        ImGui.TextUnformatted(Lang.Get("Job"));
         
         ImGui.TableNextColumn();
-        ImGui.Text(Lang.Get("FCMemberManagePanel-PositionLastTime"));
+        ImGui.TextUnformatted(Lang.Get("FCMemberManagePanel-PositionLastTime"));
         
         ImGui.TableNextColumn();
         if (ImGuiOm.ButtonIcon("OpenMultiPopup", FontAwesomeIcon.EllipsisH, string.Empty, true))
@@ -271,30 +271,30 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
     {
         if (ImGui.BeginPopupContextItem($"{data.ContentID}_Popup"))
         {
-            ImGui.Text($"{data.Name}");
+            ImGui.TextUnformatted($"{data.Name}");
         
             ImGui.Separator();
             ImGui.Spacing();
         
             // 冒险者铭牌
-            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ExtractText()))
-                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ExtractText());
+            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ToString()))
+                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ToString());
         
             // 个人信息
-            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(51)!.Value.Text.ExtractText()))
-                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(51)!.Value.Text.ExtractText());
+            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(51)!.Value.Text.ToString()))
+                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(51)!.Value.Text.ToString());
         
             // 部队信息
-            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ExtractText()))
-                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ExtractText());
+            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ToString()))
+                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ToString());
             
             // 任命
-            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ExtractText()))
-                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ExtractText());
+            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ToString()))
+                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ToString());
             
             // 除名
-            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ExtractText()))
-                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ExtractText());
+            if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ToString()))
+                OpenContextMenuAndClick(data.Index, LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ToString());
 
             ImGui.EndPopup();
         }
@@ -304,7 +304,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
     {
         if (ImGui.BeginPopupContextItem("Multi_Popup"))
         {
-            ImGui.Text(Lang.Get("FCMemberManagePanel-SelectedMembers", SelectedMembers.Count));
+            ImGui.TextUnformatted(Lang.Get("FCMemberManagePanel-SelectedMembers", SelectedMembers.Count));
         
             ImGui.Separator();
             ImGui.Spacing();
@@ -316,25 +316,25 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
                     SelectedMembers.Clear();
                 
                 // 冒险者铭牌
-                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ExtractText()))
-                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ExtractText());
+                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ToString()))
+                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(15083)!.Value.Text.ToString());
         
                 // 个人信息
-                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(51)!.Value.Text.ExtractText()))
-                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(51)!.Value.Text.ExtractText(), "SocialDetailB");
+                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(51)!.Value.Text.ToString()))
+                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(51)!.Value.Text.ToString(), "SocialDetailB");
         
                 // 部队信息
-                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ExtractText()))
-                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ExtractText());
+                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ToString()))
+                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2807)!.Value.Text.ToString());
             
                 // 任命
-                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ExtractText()))
-                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ExtractText());
+                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ToString()))
+                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2656)!.Value.Text.ToString());
             
                 // 除名
-                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ExtractText()))
+                if (ImGui.MenuItem(LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ToString()))
                 {
-                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ExtractText(), "SelectYesno",
+                    EnqueueContentMenuClicks(SelectedMembers, LuminaGetter.GetRow<Addon>(2801)!.Value.Text.ToString(), "SelectYesno",
                                              () =>
                                              {
                                                  ContextTaskHelper.Enqueue(() => ClickSelectYesnoYes(), weight: 1);
@@ -371,19 +371,19 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
     {
         if (!ContextTaskHelper.IsBusy || args.Addon == nint.Zero) return;
 
-        var addon = args.Addon.ToAtkUnitBase();
-        Callback(addon, true, 0);
+        var addon = args.Addon.ToStruct();
+        addon->Callback(0);
     }
 
     private static void EnqueueContentMenuClicks(
-        IEnumerable<FreeCompanyMemberInfo> datas, string text, string? waitAddon = null, Func<bool?>? extraAction = null)
+        IEnumerable<FreeCompanyMemberInfo> datas, string text, string? waitAddon = null, Func<bool>? extraAction = null)
     {
         ContextTaskHelper.Abort();
         foreach (var data in datas)
         {
             ContextTaskHelper.Enqueue(() => OpenContextMenuAndClick(data.Index, text));
             if (waitAddon != null)
-                ContextTaskHelper.Enqueue(() => TryGetAddonByName<AtkUnitBase>(waitAddon, out var addon) && IsAddonAndNodesReady(addon));
+                ContextTaskHelper.Enqueue(() => TryGetAddonByName<AtkUnitBase>(waitAddon, out var addon) && addon->IsAddonAndNodesReady());
             
             if (extraAction != null)
                 ContextTaskHelper.Enqueue(extraAction);
@@ -397,7 +397,7 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
         OpenContextMenuByIndex(dataIndex);
         ContextTaskHelper.Enqueue(() =>
         {
-            if (InfosOm.ContextMenuXIV == null || !IsAddonAndNodesReady(InfosOm.ContextMenuXIV)) return false;
+            if (InfosOm.ContextMenuXIV == null || !InfosOm.ContextMenuXIV->IsAddonAndNodesReady()) return false;
             
             if (!ClickContextMenu(menuText))
             {
@@ -530,11 +530,11 @@ public unsafe class FCMemberManagePanel : DailyModuleBase
                 ContentID = data.ContentId,
                 Index     = index,
                 OnlineStatus = (uint)GetOrigOnlineStatusID(data.State),
-                Name    = string.IsNullOrWhiteSpace(data.NameString) ? LuminaGetter.GetRow<Addon>(964)!.Value.Text.ExtractText() : data.NameString,
-                JobIcon = data.Job == 0 ? null : DService.Texture.GetFromGameIcon(new(62100U + data.Job)),
-                Job     = data.Job == 0 ? string.Empty : LuminaGetter.GetRow<ClassJob>(data.Job)?.Abbreviation.ExtractText(),
+                Name    = string.IsNullOrWhiteSpace(data.NameString) ? LuminaGetter.GetRow<Addon>(964)!.Value.Text.ToString() : data.NameString,
+                JobIcon = data.Job == 0 ? null : DService.Instance().Texture.GetFromGameIcon(new(62100U + data.Job)),
+                Job     = data.Job == 0 ? string.Empty : LuminaGetter.GetRow<ClassJob>(data.Job)?.Abbreviation.ToString(),
                 Location = data.Location != 0
-                               ? LuminaGetter.TryGetRow<TerritoryType>(data.Location, out var zone) ? zone.PlaceName.Value.Name.ExtractText() : lastOnlineTime
+                               ? LuminaGetter.TryGetRow<TerritoryType>(data.Location, out var zone) ? zone.PlaceName.Value.Name.ToString() : lastOnlineTime
                                : lastOnlineTime,
             };
         }

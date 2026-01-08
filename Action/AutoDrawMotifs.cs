@@ -4,6 +4,7 @@ using DailyRoutines.Managers;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.JobGauge.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -24,12 +25,12 @@ public class AutoDrawMotifs : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper ??= new() { TimeoutMS = 30_000 };
 
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        DService.DutyState.DutyRecommenced    += OnDutyRecommenced;
-        DService.Condition.ConditionChange    += OnConditionChanged;
-        DService.DutyState.DutyCompleted      += OnDutyCompleted;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().DutyState.DutyRecommenced    += OnDutyRecommenced;
+        DService.Instance().Condition.ConditionChange    += OnConditionChanged;
+        DService.Instance().DutyState.DutyCompleted      += OnDutyCompleted;
     }
 
     protected override void ConfigUI()
@@ -69,37 +70,37 @@ public class AutoDrawMotifs : DailyModuleBase
         TaskHelper.Enqueue(CheckCurrentJob);
     }
 
-    private bool? CheckCurrentJob()
+    private bool CheckCurrentJob()
     {
         if (BetweenAreas || OccupiedInEvent) return false;
-        if (DService.ObjectTable.LocalPlayer is not { ClassJob.RowId: 42, Level: >= 30 } || !IsValidPVEDuty())
+        if (DService.Instance().ObjectTable.LocalPlayer is not { ClassJob.RowId: 42, Level: >= 30 } || !IsValidPVEDuty())
         {
             TaskHelper.Abort();
             return true;
         }
 
-        TaskHelper.Enqueue(DrawNeededMotif, "DrawNeededMotif", 5_000, true, 1);
+        TaskHelper.Enqueue(DrawNeededMotif, "DrawNeededMotif", 5_000, weight: 1);
         return true;
     }
 
-    private bool? DrawNeededMotif()
+    private bool DrawNeededMotif()
     {
-        var gauge = DService.JobGauges.Get<PCTGauge>();
+        var gauge = DService.Instance().JobGauges.Get<PCTGauge>();
 
-        if (DService.ObjectTable.LocalPlayer == null || BetweenAreas || DService.Condition[ConditionFlag.Casting]) return false;
+        if (DService.Instance().ObjectTable.LocalPlayer == null || BetweenAreas || DService.Instance().Condition[ConditionFlag.Casting]) return false;
 
-        if (DService.Condition.Any(ConditionFlag.InCombat, ConditionFlag.Mounted, ConditionFlag.Mounting, ConditionFlag.InFlight))
+        if (DService.Instance().Condition.Any(ConditionFlag.InCombat, ConditionFlag.Mounted, ConditionFlag.Mounting, ConditionFlag.InFlight))
         {
             TaskHelper.Abort();
             return true;
         }
         
         var motifAction = 0U;
-        if (!gauge.CreatureMotifDrawn && IsActionUnlocked(34689))
+        if (!gauge.CreatureMotifDrawn && ActionManager.IsActionUnlocked(34689))
             motifAction = 34689;
-        else if (!gauge.WeaponMotifDrawn && IsActionUnlocked(34690) && !LocalPlayerState.HasStatus(3680, out _))
+        else if (!gauge.WeaponMotifDrawn && ActionManager.IsActionUnlocked(34690) && !LocalPlayerState.HasStatus(3680, out _))
             motifAction = 34690;
-        else if (!gauge.LandscapeMotifDrawn && IsActionUnlocked(34691))
+        else if (!gauge.LandscapeMotifDrawn && ActionManager.IsActionUnlocked(34691))
             motifAction = 34691;
 
         if (motifAction == 0)
@@ -108,24 +109,23 @@ public class AutoDrawMotifs : DailyModuleBase
             return true;
         }
 
-        TaskHelper.Enqueue(() => UseActionManager.UseAction(ActionType.Action, motifAction), $"UseAction_{motifAction}", 2_000, true, 1);
-        TaskHelper.DelayNext(500, $"DrawMotif_{motifAction}", false, 1);
-        TaskHelper.Enqueue(DrawNeededMotif, "DrawNeededMotif", 5_000, true, 1);
+        TaskHelper.Enqueue(() => UseActionManager.Instance().UseAction(ActionType.Action, motifAction), $"UseAction_{motifAction}", 2_000, weight: 1);
+        TaskHelper.DelayNext(500, $"DrawMotif_{motifAction}", 1);
+        TaskHelper.Enqueue(DrawNeededMotif, "DrawNeededMotif", 5_000, weight: 1);
         return true;
     }
-    
-    private static bool IsValidPVEDuty()
-    {
-        var isPVP = GameState.IsInPVPArea;
-        return !isPVP && (GameState.ContentFinderConditionData.RowId == 0 || !InvalidContentTypes.Contains(GameState.ContentFinderConditionData.ContentType.RowId));
-    }
+
+    private static bool IsValidPVEDuty() =>
+        !GameState.IsInPVPArea &&
+        (GameState.ContentFinderConditionData.RowId == 0 ||
+         !InvalidContentTypes.Contains(GameState.ContentFinderConditionData.ContentType.RowId));
 
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        DService.DutyState.DutyRecommenced    -= OnDutyRecommenced;
-        DService.Condition.ConditionChange    -= OnConditionChanged;
-        DService.DutyState.DutyCompleted      -= OnDutyCompleted;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().DutyState.DutyRecommenced    -= OnDutyRecommenced;
+        DService.Instance().Condition.ConditionChange    -= OnConditionChanged;
+        DService.Instance().DutyState.DutyCompleted      -= OnDutyCompleted;
     }
 
     private class Config : ModuleConfiguration

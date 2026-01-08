@@ -63,7 +63,7 @@ public unsafe class AutoChangeKeyboardLayout : DailyModuleBase
         if (CachedLayouts == null) return;
 
         // 聚焦时的布局选择
-        ImGui.Text(GetLoc("Focused"));
+        ImGui.TextUnformatted(GetLoc("Focused"));
 
         using (var focusCombo = ImRaii.Combo("##FocusLayout", CachedLayouts.GetValueOrDefault(ModuleConfig.FocusLayoutLangID).Name ?? GetLoc("Unknown")))
         {
@@ -87,7 +87,7 @@ public unsafe class AutoChangeKeyboardLayout : DailyModuleBase
         ImGui.Spacing();
 
         // 失焦时的布局选择
-        ImGui.Text(GetLoc("Unfocused"));
+        ImGui.TextUnformatted(GetLoc("Unfocused"));
         
         using (var unfocusCombo = ImRaii.Combo("##UnfocusLayout", CachedLayouts.GetValueOrDefault(ModuleConfig.UnfocusLayoutLangID).Name ?? GetLoc("Unknown")))
         {
@@ -111,7 +111,7 @@ public unsafe class AutoChangeKeyboardLayout : DailyModuleBase
         ImGui.NewLine();
 
         var currentLangID = (ushort)(InputMethodController.CurrentLayout.ToInt64() & 0xFFFF);
-        ImGui.Text($"{GetLoc("Current")}\n\t\t{CachedLayouts.GetValueOrDefault(currentLangID).Name ?? GetLoc("Unknown")}");
+        ImGui.TextUnformatted($"{GetLoc("Current")}\n\t\t{CachedLayouts.GetValueOrDefault(currentLangID).Name ?? GetLoc("Unknown")}");
     }
 
     private static void ChangeKeyboardLayout(
@@ -126,7 +126,7 @@ public unsafe class AutoChangeKeyboardLayout : DailyModuleBase
         switch (eventType)
         {
             case AtkEventType.FocusStart: // 聚焦
-                DService.Framework.RunOnTick(() => CheckSlashAndSwitchLayout(component), TimeSpan.FromMilliseconds(50));
+                DService.Instance().Framework.RunOnTick(() => CheckSlashAndSwitchLayout(component), TimeSpan.FromMilliseconds(50));
                 break;
             case AtkEventType.FocusStop: // 失焦
                 var unfocusLayout = InputMethodController.FindKeyboardLayout(ModuleConfig.UnfocusLayoutLangID);
@@ -144,7 +144,7 @@ public unsafe class AutoChangeKeyboardLayout : DailyModuleBase
         if (textNode == null) return;
 
         // 指令
-        var nodeText = textNode->NodeText.ExtractText();
+        var nodeText = textNode->NodeText.ToString();
         if (nodeText.StartsWith('/')) return;
 
         var focusLayout = InputMethodController.FindKeyboardLayout(ModuleConfig.FocusLayoutLangID);

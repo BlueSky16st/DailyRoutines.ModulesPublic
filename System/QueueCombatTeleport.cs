@@ -40,14 +40,14 @@ public unsafe class QueueCombatTeleport : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
-        TeleportHelper ??= new() { TimeLimitMS = 60_000 };
+        TeleportHelper ??= new() { TimeoutMS = 60_000 };
 
         CanUseTeleportPatch.Enable();
         CanUseTeleportMapPatch.Enable();
 
-        UseActionManager.RegPreUseAction(OnPreUseAction);
-        ExecuteCommandManager.RegPre(OnPreUseCommand);
-        DService.Condition.ConditionChange += OnConditionChanged;
+        UseActionManager.Instance().RegPreUseAction(OnPreUseAction);
+        ExecuteCommandManager.Instance().RegPre(OnPreUseCommand);
+        DService.Instance().Condition.ConditionChange += OnConditionChanged;
     }
 
     protected override void ConfigUI()
@@ -74,7 +74,7 @@ public unsafe class QueueCombatTeleport : DailyModuleBase
     {
         if (actionType != ActionType.GeneralAction || actionID != 7) return;
         if (GameMain.Instance()->CurrentContentFinderConditionId != 0) return;
-        if (!DService.Condition[ConditionFlag.InCombat]) return;
+        if (!DService.Instance().Condition[ConditionFlag.InCombat]) return;
         if (ModuleManager.IsModuleEnabled("BetterTeleport") ?? false) return;
         
         var agent = AgentTeleport.Instance();
@@ -88,7 +88,7 @@ public unsafe class QueueCombatTeleport : DailyModuleBase
     private static void OnPreUseCommand(
         ref bool isPrevented, ref ExecuteCommandFlag command, ref uint param1, ref uint param2, ref uint param3, ref uint param4)
     {
-        if (command != ExecuteCommandFlag.Teleport || isPrevented || !DService.Condition[ConditionFlag.InCombat]) return;
+        if (command != ExecuteCommandFlag.Teleport || isPrevented || !DService.Instance().Condition[ConditionFlag.InCombat]) return;
         isPrevented = true;
         QueuedTeleport = new(param1, param3);
         Notify(QueueTeleportNotifyType.Save);
@@ -103,7 +103,7 @@ public unsafe class QueueCombatTeleport : DailyModuleBase
 
         if (currentFate != null)
             TeleportHelper.Enqueue(() => FateManager.Instance()->CurrentFate == null);
-        TeleportHelper.Enqueue(() => !DService.Condition[ConditionFlag.InCombat]);
+        TeleportHelper.Enqueue(() => !DService.Instance().Condition[ConditionFlag.InCombat]);
 
         if (ModuleConfig.Delay > 0)
         {
@@ -131,19 +131,19 @@ public unsafe class QueueCombatTeleport : DailyModuleBase
         {
             case QueueTeleportNotifyType.Save when QueuedTeleport != null:
                 var qualifiedAetheryteSaved =
-                    DService.AetheryteList.FirstOrDefault(x => x.AetheryteID == QueuedTeleport.Value.ID &&
+                    DService.Instance().AetheryteList.FirstOrDefault(x => x.AetheryteID == QueuedTeleport.Value.ID &&
                                                                x.SubIndex == QueuedTeleport.Value.SubID);
                 if (qualifiedAetheryteSaved == null) return;
                 message = GetLoc("QueueCombatTeleport-Notice-Saved",
-                                 qualifiedAetheryteSaved.AetheryteData.Value.PlaceName.Value.Name.ExtractText());
+                                 qualifiedAetheryteSaved.AetheryteData.Value.PlaceName.Value.Name.ToString());
                 break;
             case QueueTeleportNotifyType.Execute when QueuedTeleport != null:
                 var qualifiedAetheryteExecuted =
-                    DService.AetheryteList.FirstOrDefault(x => x.AetheryteID == QueuedTeleport.Value.ID &&
+                    DService.Instance().AetheryteList.FirstOrDefault(x => x.AetheryteID == QueuedTeleport.Value.ID &&
                                                                x.SubIndex == QueuedTeleport.Value.SubID);
                 if (qualifiedAetheryteExecuted == null) return;
                 message = GetLoc("QueueCombatTeleport-Notice-Executed",
-                                 qualifiedAetheryteExecuted.AetheryteData.Value.PlaceName.Value.Name.ExtractText());
+                                 qualifiedAetheryteExecuted.AetheryteData.Value.PlaceName.Value.Name.ToString());
                 break;
             case QueueTeleportNotifyType.Clear:
                 message = GetLoc("QueueCombatTeleport-Notice-Cleared");
@@ -162,9 +162,9 @@ public unsafe class QueueCombatTeleport : DailyModuleBase
         CanUseTeleportPatch.Disable();
         CanUseTeleportMapPatch.Disable();
 
-        DService.Condition.ConditionChange -= OnConditionChanged;
-        ExecuteCommandManager.Unreg(OnPreUseCommand);
-        UseActionManager.Unreg(OnPreUseAction);
+        DService.Instance().Condition.ConditionChange -= OnConditionChanged;
+        ExecuteCommandManager.Instance().Unreg(OnPreUseCommand);
+        UseActionManager.Instance().Unreg(OnPreUseAction);
 
         TeleportHelper?.Abort();
         TeleportHelper = null;

@@ -10,6 +10,7 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Hooking;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Graphics;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using KamiToolKit.Nodes;
@@ -70,13 +71,13 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
         SendInventoryRefreshHook ??= SendInventoryRefreshSig.GetHook<SendInventoryRefreshDelegate>(SendInventoryRefreshDetour);
         SendInventoryRefreshHook.Enable();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "FreeCompanyChest", OnAddonChest);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "FreeCompanyChest", OnAddonChest);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeCompanyChest", OnAddonChest);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "InputNumeric",     OnAddonInput);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreDraw,     "ContextMenu",      OnAddonContextMenu);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "FreeCompanyChest", OnAddonChest);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "FreeCompanyChest", OnAddonChest);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeCompanyChest", OnAddonChest);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "InputNumeric",     OnAddonInput);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreDraw,     "ContextMenu",      OnAddonContextMenu);
         
-        DService.ContextMenu.OnMenuOpened += OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened += OnContextMenuOpened;
     }
 
     // 打开部队储物柜时请求所有页面数据, 并生成 Node
@@ -90,7 +91,7 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
                 if (ModuleConfig.DefaultPage != InventoryType.Invalid)
                 {
                     if (ModuleConfig.DefaultPage == InventoryType.FreeCompanyCrystals)
-                        DService.Framework.Run(() => ((AtkComponentRadioButton*)FreeCompanyChest->GetComponentByNodeId(15))->ClickRadioButton(FreeCompanyChest));
+                        DService.Instance().Framework.Run(() => ((AtkComponentRadioButton*)FreeCompanyChest->GetComponentByNodeId(15))->Click());
                     else
                     {
                         if ((int)ModuleConfig.DefaultPage < 20000) return;
@@ -98,7 +99,7 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
                         var index = (int)ModuleConfig.DefaultPage % 20000;
                         if (index > 5) return;
 
-                        DService.Framework.Run(() => ((AtkComponentRadioButton*)FreeCompanyChest->GetComponentByNodeId((uint)(10 + index)))->ClickRadioButton(FreeCompanyChest));
+                        DService.Instance().Framework.Run(() => ((AtkComponentRadioButton*)FreeCompanyChest->GetComponentByNodeId((uint)(10 + index)))->Click());
                     }
                 }
                 break;
@@ -221,7 +222,7 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
                         IsVisible        = true,
                         SeString         = "0\ue049",
                         TextFlags        = TextFlags.Glare | TextFlags.Edge,
-                        TextOutlineColor = ConvertByteColorToVector4(new() { R = 240, G = 142, B = 55, A = 255 }),
+                        TextOutlineColor = new ByteColor { R = 240, G = 142, B = 55, A = 255 }.ToVector4(),
                         FontSize         = 14,
                         AlignmentType    = AlignmentType.Right,
                     };
@@ -237,7 +238,7 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
                     LastTotalPrice = TryGetTotalPrice(out var totalPrice) ? totalPrice : 0;
 
                     ComponentNode.IsVisible         = LastTotalPrice > 0;
-                    GilItemsValueCountNode.String = $"{FormatNumber(LastTotalPrice)}\ue049";
+                    GilItemsValueCountNode.String = $"{LastTotalPrice.ToChineseString()}\ue049";
                 }
 
                 break;
@@ -305,16 +306,16 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
     // 自动确认数量
     private static void OnAddonInput(AddonEvent type, AddonArgs args)
     {
-        if (!ModuleConfig.FastMoveItem || InputNumeric == null || !IsAddonAndNodesReady(FreeCompanyChest)) return;
+        if (!ModuleConfig.FastMoveItem || InputNumeric == null || !FreeCompanyChest->IsAddonAndNodesReady()) return;
 
-        Callback(InputNumeric, true, (int)InputNumeric->AtkValues[3].UInt);
+        InputNumeric->Callback((int)InputNumeric->AtkValues[3].UInt);
     }
 
     // 移除操作锁
     private static bool SendInventoryRefreshDetour(InventoryManager* instance, int inventoryType)
     {
         // 直接返回 true 防锁
-        ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.RequestInventory, (uint)inventoryType);
+        ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.RequestInventory, (uint)inventoryType);
         return true;
     }
 
@@ -363,7 +364,7 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
     {
         page = InventoryType.Invalid;
     
-        if (FreeCompanyChest == null || GetNodeVisible(FreeCompanyChest->GetNodeById(106)))
+        if (FreeCompanyChest == null || FreeCompanyChest->GetNodeById(106)->GetVisibility())
             return false;
 
         if (FreeCompanyChest->AtkValues[1].UInt != 0)
@@ -426,7 +427,7 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
     {
         totalPrice = 0;
 
-        if (!IsAddonAndNodesReady(FreeCompanyChest)) return false;
+        if (!FreeCompanyChest->IsAddonAndNodesReady()) return false;
         
         var manager = InventoryManager.Instance();
         if (manager == null) return false;
@@ -446,21 +447,16 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
         
         return totalPrice > 0;
     }
-    
-    private static string FormatNumber(long number) =>
-        Lang.CurrentLanguage is not ("ChineseSimplified" or "ChineseTraditional") ? 
-            number.ToString(CultureInfo.InvariantCulture) : 
-            FormatNumberByChineseNotation(number, Lang.CurrentLanguage);
 
     #endregion
 
     protected override void Uninit()
     {
-        DService.ContextMenu.OnMenuOpened -= OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnContextMenuOpened;
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonContextMenu);
-        DService.AddonLifecycle.UnregisterListener(OnAddonChest);
-        DService.AddonLifecycle.UnregisterListener(OnAddonInput);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonContextMenu);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonChest);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonInput);
 
         ClearNodes();
         

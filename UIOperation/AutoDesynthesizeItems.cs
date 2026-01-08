@@ -26,13 +26,13 @@ public unsafe class AutoDesynthesizeItems : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 10_000 };
+        TaskHelper ??= new() { TimeoutMS = 10_000 };
 
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "SalvageItemSelector", OnAddonList);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SalvageItemSelector", OnAddonList);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SalvageDialog",       OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "SalvageItemSelector", OnAddonList);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SalvageItemSelector", OnAddonList);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "SalvageDialog",       OnAddon);
     }
 
     private void OnAddonList(AddonEvent type, AddonArgs? args)
@@ -111,9 +111,9 @@ public unsafe class AutoDesynthesizeItems : DailyModuleBase
     private static void OnAddon(AddonEvent type, AddonArgs args)
     {
         if (!Throttler.Throttle("AutoDesynthesizeItems-Process", 100)) return;
-        if (!IsAddonAndNodesReady(SalvageDialog)) return;
+        if (!SalvageDialog->IsAddonAndNodesReady()) return;
 
-        Callback(SalvageDialog, true, 0, 0);
+        SalvageDialog->Callback(0, 0);
     }
 
     private void StartDesynthesizeAll()
@@ -122,13 +122,13 @@ public unsafe class AutoDesynthesizeItems : DailyModuleBase
         TaskHelper.Enqueue(StartDesynthesize, "开始分解全部装备");
     }
 
-    private bool? StartDesynthesize()
+    private bool StartDesynthesize()
     {
         if (OccupiedInEvent) return false;
-        if (!IsAddonAndNodesReady(SalvageItemSelector)) return false;
+        if (!SalvageItemSelector->IsAddonAndNodesReady()) return false;
 
         // 背包满了
-        if (IsInventoryFull(PlayerInventories, 3))
+        if (PlayerInventories.IsFull(3))
         {
             RaptureLogModule.Instance()->ShowLogMessage(3974);
             TaskHelper.Abort();
@@ -151,7 +151,7 @@ public unsafe class AutoDesynthesizeItems : DailyModuleBase
                     continue;
             }
 
-            SendEvent(AgentId.Salvage, 0, 12, i);
+            AgentId.Salvage.SendEvent(0, 12, i);
             TaskHelper.Enqueue(StartDesynthesize);
             return true;
         }
@@ -162,8 +162,8 @@ public unsafe class AutoDesynthesizeItems : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonList);
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonList);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
         OnAddonList(AddonEvent.PreFinalize, null);
     }

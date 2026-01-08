@@ -47,8 +47,8 @@ public unsafe class OptimizedFreeShop : DailyModuleBase
         ReceiveEventHook ??= ReceiveEventSig.GetHook<AgentReceiveEventDelegate>(ReceiveEventDetour);
         ReceiveEventHook.Enable();
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "FreeShop", OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeShop", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "FreeShop", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeShop", OnAddon);
     }
 
     private static AtkValue* ReceiveEventDetour(AgentInterface* agent, AtkValue* returnValues, AtkValue* values, uint valueCount, ulong eventKind)
@@ -122,7 +122,7 @@ public unsafe class OptimizedFreeShop : DailyModuleBase
                     {
                         if (!LuminaGetter.TryGetRow(classJobCategory, out ClassJobCategory categoryData)) continue;
                         if (LuminaGetter.Get<ClassJob>()
-                                        .FirstOrDefault(x => x.Name.ExtractText().Contains(categoryData.Name.ExtractText(), StringComparison.OrdinalIgnoreCase)) 
+                                        .FirstOrDefault(x => x.Name.ToString().Contains(categoryData.Name.ToString(), StringComparison.OrdinalIgnoreCase)) 
                             is not { RowId: > 0 } classJobData) continue;
 
                         var icon = classJobData.RowId + 62100;
@@ -169,7 +169,7 @@ public unsafe class OptimizedFreeShop : DailyModuleBase
 
                 anythingNotInBag = true;
                                     
-                TaskHelper.Enqueue(() => SendEvent(AgentId.FreeShop, 0, 0, index));
+                TaskHelper.Enqueue(() => AgentId.FreeShop.SendEvent(0, 0, index));
                 TaskHelper.DelayNext(10);
             }
 
@@ -180,7 +180,7 @@ public unsafe class OptimizedFreeShop : DailyModuleBase
     
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         OnAddon(AddonEvent.PreFinalize, null);
 
         ClickYesnoHelper = null;

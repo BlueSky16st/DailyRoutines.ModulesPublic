@@ -67,7 +67,7 @@ public unsafe class AutoConstantlyClick : DailyModuleBase
     protected override void ConfigUI()
     {
         ImGui.AlignTextToFramePadding();
-        ImGui.Text($"{GetLoc("Interval")}:");
+        ImGui.TextUnformatted($"{GetLoc("Interval")}:");
         
         ImGui.SameLine();
         ImGui.SetNextItemWidth(200f * GlobalFontScale);
@@ -120,11 +120,11 @@ public unsafe class AutoConstantlyClick : DailyModuleBase
     private int GamepadPollDetour(nint gamepadInput)
     {
         var input = (PadDevice*)gamepadInput;
-        if (DService.Gamepad.Raw(ModuleConfig.GamepadModeTriggerButtons) == 1)
+        if (DService.Instance().Gamepad.Raw(ModuleConfig.GamepadModeTriggerButtons) == 1)
         {
             foreach (var btn in Enum.GetValues<GamepadButtons>())
             {
-                if (DService.Gamepad.Raw(btn) == 1)
+                if (DService.Instance().Gamepad.Raw(btn) == 1)
                 {
                     if (Environment.TickCount64 >= ThrottleTime)
                     {

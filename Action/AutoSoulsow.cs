@@ -3,6 +3,8 @@ using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
 using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -19,11 +21,11 @@ public class AutoSoulsow : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper ??= new() { TimeoutMS = 30_000 };
 
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        DService.DutyState.DutyRecommenced    += OnDutyRecommenced;
-        DService.Condition.ConditionChange    += OnConditionChanged;
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().DutyState.DutyRecommenced    += OnDutyRecommenced;
+        DService.Instance().Condition.ConditionChange    += OnConditionChanged;
     }
 
     // 重新挑战
@@ -53,33 +55,33 @@ public class AutoSoulsow : DailyModuleBase
             TaskHelper.Enqueue(CheckCurrentJob);
     }
 
-    private bool? CheckCurrentJob()
+    private bool CheckCurrentJob()
     {
-        if (BetweenAreas || !IsScreenReady() || OccupiedInEvent) return false;
-        if (DService.Condition[ConditionFlag.InCombat] || LocalPlayerState.ClassJob != 39 || !IsValidPVEDuty())
+        if (BetweenAreas || !UIModule.IsScreenReady() || OccupiedInEvent) return false;
+        if (DService.Instance().Condition[ConditionFlag.InCombat] || LocalPlayerState.ClassJob != 39 || !IsValidPVEDuty())
         {
             TaskHelper.Abort();
             return true;
         }
         
-        TaskHelper.Enqueue(UseRelatedActions, "UseRelatedActions", 5_000, true, 1);
+        TaskHelper.Enqueue(UseRelatedActions, "UseRelatedActions", 5_000, weight: 1);
         return true;
     }
     
-    private bool? UseRelatedActions()
+    private bool UseRelatedActions()
     {
-        if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return false;
+        if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return false;
 
         // 播魂种
-        if (localPlayer.StatusList.HasStatus(2594) || !IsActionUnlocked(24387))
+        if (localPlayer.StatusList.HasStatus(2594) || !ActionManager.IsActionUnlocked(24387))
         {
             TaskHelper.Abort();
             return true;
         }
 
-        TaskHelper.Enqueue(() => UseActionManager.UseAction(ActionType.Action, 24387), $"UseAction_{24387}", 5_000, true, 1);
+        TaskHelper.Enqueue(() => UseActionManager.Instance().UseAction(ActionType.Action, 24387), $"UseAction_{24387}", 5_000, weight: 1);
         TaskHelper.DelayNext(2_000);
-        TaskHelper.Enqueue(CheckCurrentJob, "SecondCheck", null, true, 1);
+        TaskHelper.Enqueue(CheckCurrentJob, "二次检查", weight: 1);
         return true;
     }
 
@@ -90,8 +92,8 @@ public class AutoSoulsow : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
-        DService.DutyState.DutyRecommenced    -= OnDutyRecommenced;
-        DService.Condition.ConditionChange    -= OnConditionChanged;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().DutyState.DutyRecommenced    -= OnDutyRecommenced;
+        DService.Instance().Condition.ConditionChange    -= OnConditionChanged;
     }
 }

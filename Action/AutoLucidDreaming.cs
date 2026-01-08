@@ -7,6 +7,8 @@ using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.UI;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -20,11 +22,11 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
         Author      = ["qingsiweisan"]
     };
     
-    private const int    AbilityLockTimeMs   = 600;
-    private const float  UseInGcdWindowStart = 60;
-    private const float  UseInGcdWindowEnd   = 95;
-    private const uint   LucidDreamingID     = 7562;
-    private const ushort TranscendentStatus  = 418;
+    private const int    ABILITY_LOCK_TIME_MS    = 600;
+    private const float  USE_IN_GCD_WINDOW_START = 60;
+    private const float  USE_IN_GCD_WINDOW_END   = 95;
+    private const uint   LUCID_DREAMING_ID       = 7562;
+    private const ushort TRANSCENDENT_STATUS     = 418;
 
     private static readonly HashSet<uint> ValidClassJobs = [6, 7, 15, 19, 20, 21, 23, 24, 26, 27, 28, 33, 35, 36, 40];
 
@@ -35,10 +37,10 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper   ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper   ??= new() { TimeoutMS = 30_000 };
         ModuleConfig =   LoadConfig<Config>() ?? new();
 
-        DService.Condition.ConditionChange += OnConditionChanged;
+        DService.Instance().Condition.ConditionChange += OnConditionChanged;
 
         CheckAndEnqueue();
     }
@@ -62,7 +64,7 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.Condition.ConditionChange -= OnConditionChanged;
+        DService.Instance().Condition.ConditionChange -= OnConditionChanged;
 
     private void OnConditionChanged(ConditionFlag flag, bool value)
     {
@@ -77,7 +79,7 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
         
         if ((ModuleConfig.OnlyInDuty && GameState.ContentFinderCondition == 0) ||
             GameState.IsInPVPArea                                              ||
-            !DService.Condition[ConditionFlag.InCombat])
+            !DService.Instance().Condition[ConditionFlag.InCombat])
             return;
 
         TaskHelper.Enqueue(MainProcess);
@@ -86,42 +88,43 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
     private void MainProcess()
     {
         TaskHelper.Abort();
-        
-        if (!IsScreenReady() || OccupiedInEvent)
+
+        if (!UIModule.IsScreenReady() || OccupiedInEvent)
         {
             TaskHelper.DelayNext(1000);
             TaskHelper.Enqueue(MainProcess);
             return;
         }
 
-        if (!DService.Condition[ConditionFlag.InCombat] || !ValidClassJobs.Contains(LocalPlayerState.ClassJob) ||
-            !IsActionUnlocked(LucidDreamingID))
+        if (!DService.Instance().Condition[ConditionFlag.InCombat]         ||
+            !ValidClassJobs.Contains(LocalPlayerState.ClassJob) ||
+            !ActionManager.IsActionUnlocked(LUCID_DREAMING_ID))
             return;
 
-        TaskHelper.Enqueue(PreventAbilityUse, "PreventAbilityUse", 5_000, true, 1);
-        TaskHelper.Enqueue(UseLucidDreaming,  "UseLucidDreaming",  5_000, true, 1);
-        
+        TaskHelper.Enqueue(PreventAbilityUse, "PreventAbilityUse", 5_000, weight: 1);
+        TaskHelper.Enqueue(UseLucidDreaming,  "UseLucidDreaming",  5_000, weight: 1);
+
         TaskHelper.DelayNext(1000);
         TaskHelper.Enqueue(MainProcess);
     }
 
-    private bool? PreventAbilityUse()
+    private bool PreventAbilityUse()
     {
         var timeSinceLastUse = (DateTime.Now - LastLucidDreamingUseTime).TotalMilliseconds;
         
-        var shouldLock = timeSinceLastUse < AbilityLockTimeMs;
+        var shouldLock = timeSinceLastUse < ABILITY_LOCK_TIME_MS;
         IsAbilityLocked = shouldLock;
         
         if (shouldLock)
         {
-            var remainingLockTime = AbilityLockTimeMs - (int)timeSinceLastUse;
+            var remainingLockTime = ABILITY_LOCK_TIME_MS - (int)timeSinceLastUse;
             TaskHelper.DelayNext(Math.Min(remainingLockTime, 100));
         }
         
         return true;
     }
 
-    private bool? UseLucidDreaming()
+    private bool UseLucidDreaming()
     {
         var localPlayer = Control.GetLocalPlayer();
         if (localPlayer == null) return false;
@@ -130,15 +133,15 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
         var currentMp        = localPlayer->Mana;
         var timeSinceLastUse = (DateTime.Now - LastLucidDreamingUseTime).TotalMilliseconds;
         
-        if (timeSinceLastUse < AbilityLockTimeMs || currentMp >= ModuleConfig.MpThreshold)
+        if (timeSinceLastUse < ABILITY_LOCK_TIME_MS || currentMp >= ModuleConfig.MpThreshold)
             return true;
             
         // 刚复活的无敌
-        if (statusManager.HasStatus(TranscendentStatus))
+        if (statusManager.HasStatus(TRANSCENDENT_STATUS))
             return true;
             
         var actionManager = ActionManager.Instance();
-        if (actionManager->GetActionStatus(ActionType.Action, LucidDreamingID) != 0 ||
+        if (actionManager->GetActionStatus(ActionType.Action, LUCID_DREAMING_ID) != 0 ||
             statusManager.HasStatus(1204)                                           ||
             localPlayer->Mode == CharacterModes.AnimLock                            ||
             localPlayer->IsCasting                                                  ||
@@ -152,25 +155,25 @@ public unsafe class AutoLucidDreaming : DailyModuleBase
             var gcdElapsed = gcdRecast->Elapsed;
             
             var gcdProgressPercent = gcdElapsed / gcdTotal * 100;
-            if (gcdProgressPercent is < UseInGcdWindowStart or > UseInGcdWindowEnd)
+            if (gcdProgressPercent is < USE_IN_GCD_WINDOW_START or > USE_IN_GCD_WINDOW_END)
                 return true;
         }
 
         var capturedTime = DateTime.Now;
         TaskHelper.Enqueue(() =>
-        {
-            if (IsAbilityLocked) return false;
+                           {
+                               if (IsAbilityLocked) return false;
             
-            var result = UseActionManager.UseActionLocation(ActionType.Action, LucidDreamingID);
-            if (result)
-            {
-                LastLucidDreamingUseTime = capturedTime;
-                if (ModuleConfig.SendNotification && Throttler.Throttle("AutoLucidDreaming-Notification", 10_000))
-                    NotificationInfo(GetLoc("AutoLucidDreaming-Notification", localPlayer->Mana));
-            }
+                               var result = UseActionManager.Instance().UseActionLocation(ActionType.Action, LUCID_DREAMING_ID);
+                               if (result)
+                               {
+                                   LastLucidDreamingUseTime = capturedTime;
+                                   if (ModuleConfig.SendNotification && Throttler.Throttle("AutoLucidDreaming-Notification", 10_000))
+                                       NotificationInfo(GetLoc("AutoLucidDreaming-Notification", localPlayer->Mana));
+                               }
             
-            return result;
-        }, $"UseAction_{LucidDreamingID}", 5_000, true, 1);
+                               return result;
+                           }, $"UseAction_{LUCID_DREAMING_ID}", 5_000, weight: 1);
         return true;
     }
     

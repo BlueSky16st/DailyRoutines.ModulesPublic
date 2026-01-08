@@ -1,5 +1,8 @@
 ﻿using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
+using FFXIVClientStructs.FFXIV.Client.Game.Event;
+using FFXIVClientStructs.FFXIV.Client.UI;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -19,10 +22,10 @@ public class NeverreapHelper : DailyModuleBase
     protected override void Init()
     {
         ModuleConfig =   LoadConfig<Config>() ?? new();
-        TaskHelper   ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper   ??= new() { TimeoutMS = 30_000 };
         
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        OnZoneChanged(DService.ClientState.TerritoryType);
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        OnZoneChanged(0);
     }
 
     protected override void ConfigUI()
@@ -31,22 +34,22 @@ public class NeverreapHelper : DailyModuleBase
             SaveConfig(ModuleConfig);
     }
 
-    private void OnZoneChanged(ushort zone)
+    private unsafe void OnZoneChanged(ushort zone)
     {
         TaskHelper.Abort();
         
-        if (zone != 420) return;
+        if (GameState.TerritoryType != 420) return;
         
         TaskHelper.Enqueue(() =>
         {
-            if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return false;
-            if (BetweenAreas || !IsScreenReady()) return false;
-            if (ModuleConfig.ValidWhenSolo && (DService.PartyList.Length > 1 || PlayersManager.PlayersAroundCount > 0))
+            if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return false;
+            if (BetweenAreas || !UIModule.IsScreenReady()) return false;
+            if (ModuleConfig.ValidWhenSolo && (DService.Instance().PartyList.Length > 1 || PlayersManager.PlayersAroundCount > 0))
             {
                 TaskHelper.Abort();
                 return true;
             }
-            if (!IsEventIDNearby(1638407)) return false;
+            if (!EventFramework.Instance()->IsEventIDNearby(1638407)) return false;
 
             new EventStartPackt(localPlayer.EntityID, 1638407).Send();
             return true;
@@ -54,7 +57,7 @@ public class NeverreapHelper : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
 
     private class Config : ModuleConfiguration
     {

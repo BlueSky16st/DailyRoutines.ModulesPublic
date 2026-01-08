@@ -49,26 +49,26 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfo", OnAddonTargetInfo);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfo", OnAddonTargetInfo);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfo", OnAddonTargetInfo);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfo", OnAddonTargetInfo);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoMainTarget", OnAddonTargetInfoSplitTarget);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoMainTarget", OnAddonTargetInfoSplitTarget);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoMainTarget", OnAddonTargetInfoSplitTarget);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoMainTarget", OnAddonTargetInfoSplitTarget);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_FocusTargetInfo", OnAddonFocusTargetInfo);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_FocusTargetInfo", OnAddonFocusTargetInfo);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_FocusTargetInfo", OnAddonFocusTargetInfo);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_FocusTargetInfo", OnAddonFocusTargetInfo);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoCastBar", OnAddonTargetInfoCastBar);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoBuffDebuff", OnAddonTargetInfoBuffDebuff);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoBuffDebuff", OnAddonTargetInfoBuffDebuff);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "_TargetInfoBuffDebuff", OnAddonTargetInfoBuffDebuff);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "_TargetInfoBuffDebuff", OnAddonTargetInfoBuffDebuff);
         
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "CastBarEnemy", OnAddonCastBarEnemy);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "CastBarEnemy", OnAddonCastBarEnemy);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "CastBarEnemy", OnAddonCastBarEnemy);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "CastBarEnemy", OnAddonCastBarEnemy);
     }
 
     protected override void ConfigUI()
@@ -86,7 +86,7 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
             if (combo)
             {
                 ImGui.AlignTextToFramePadding();
-                ImGui.Text($"{GetLoc("OptimizedTargetInfo-NumberPreview")}:");
+                ImGui.TextUnformatted($"{GetLoc("OptimizedTargetInfo-NumberPreview")}:");
 
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(-1f);
@@ -244,22 +244,22 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
     
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddonTargetInfo);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonTargetInfo);
         OnAddonTargetInfo(AddonEvent.PreFinalize, null);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonTargetInfoSplitTarget);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonTargetInfoSplitTarget);
         OnAddonTargetInfoSplitTarget(AddonEvent.PreFinalize, null);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonFocusTargetInfo);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonFocusTargetInfo);
         OnAddonFocusTargetInfo(AddonEvent.PreFinalize, null);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonTargetInfoCastBar);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonTargetInfoCastBar);
         OnAddonTargetInfoCastBar(AddonEvent.PreFinalize, null);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonTargetInfoBuffDebuff);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonTargetInfoBuffDebuff);
         OnAddonTargetInfoBuffDebuff(AddonEvent.PreFinalize, null);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddonCastBarEnemy);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonCastBarEnemy);
         OnAddonCastBarEnemy(AddonEvent.PreFinalize, null);
     }
 
@@ -298,7 +298,7 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
         ImGuiOm.TooltipHover(GetLoc("OptimizedTargetInfo-ZeroAlphaHelp"));
         
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("OptimizedTargetInfo-CustomColor")}");
+        ImGui.TextUnformatted($"{GetLoc("OptimizedTargetInfo-CustomColor")}");
 
         using (var popup = ImRaii.Popup($"{prefix}CustomColorPopup"))
         {
@@ -315,7 +315,7 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
         ImGuiOm.TooltipHover(GetLoc("OptimizedTargetInfo-ZeroAlphaHelp"));
         
         ImGui.SameLine();
-        ImGui.Text($"{GetLoc("EdgeColor")}");
+        ImGui.TextUnformatted($"{GetLoc("EdgeColor")}");
 
         using (var popup = ImRaii.Popup($"{prefix}OutlineColorPopup"))
         {
@@ -378,7 +378,7 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
                     var componentNode = (AtkComponentNode*)nodeInfo.CastBarNode;
                     if (!componentNode->IsVisible() || !nodeInfo.ProgressBarNode->IsVisible()) continue;
                     
-                    if (DService.ObjectTable.SearchByID(nodeInfo.ObjectId.Id) is not IBattleChara { CurrentCastTime: > 0 } target) 
+                    if (DService.Instance().ObjectTable.SearchByID(nodeInfo.ObjectId.Id) is not IBattleChara { CurrentCastTime: > 0 } target) 
                         continue;
 
                     currentCount++;
@@ -776,7 +776,7 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
                         autoAttackNode->ToggleVisibility(false);
                 }
 
-                textNode.IsVisible = isEnabled && !DService.Condition[ConditionFlag.Gathering];
+                textNode.IsVisible = isEnabled && !DService.Instance().Condition[ConditionFlag.Gathering];
                 if (!isEnabled) return;
 
                 if (getTarget() is IBattleChara { ObjectKind: not ObjectKind.GatheringPoint } target)
@@ -891,7 +891,7 @@ public unsafe class OptimizedTargetInfo : DailyModuleBase
             case DisplayFormat.FullNumberSeparators:
                 return num.ToString("N0");
             case DisplayFormat.ChineseFull:
-                return FormatUtf8NumberByChineseNotation((int)num, currentLang)->ToString();
+                return num.ToChineseString();
             case DisplayFormat.ChineseZeroPrecision:
             case DisplayFormat.ChineseOnePrecision:
             case DisplayFormat.ChineseTwoPrecision:

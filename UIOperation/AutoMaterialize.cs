@@ -41,9 +41,9 @@ public unsafe class AutoMaterialize : DailyModuleBase
 
         TaskHelper ??= new();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "Materialize",       OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Materialize",       OnAddon);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "MaterializeDialog", OnDialogAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "Materialize",       OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Materialize",       OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "MaterializeDialog", OnDialogAddon);
 
         if (MaterializeDialog != null) 
             OnDialogAddon(AddonEvent.PostSetup, null);
@@ -60,7 +60,7 @@ public unsafe class AutoMaterialize : DailyModuleBase
         TaskHelper.Enqueue(StartARound, "开始精炼全部装备");
     }
 
-    private bool? StartARound()
+    private bool StartARound()
     {
         if (InterruptByConflictKey(TaskHelper, this)) return true;
         
@@ -82,7 +82,7 @@ public unsafe class AutoMaterialize : DailyModuleBase
                     itemData.EquipSlotCategory.Value.RowId == 0)
                     continue;
 
-                var itemName = itemData.Name.ExtractText();
+                var itemName = itemData.Name.ToString();
                 TaskHelper.Enqueue(() => ExtractMateria(type, (uint)i) == 0, $"开始精炼单件装备 {itemName}({slot->ItemId})");
                 TaskHelper.Enqueue(() => Chat(GetSLoc("AutoMaterialize-Notice-ExtractNow", SeString.CreateItemLink(itemData, slot->IsHighQuality()))), 
                                    $"通知精制进度 {itemName}({slot->ItemId})");
@@ -101,13 +101,13 @@ public unsafe class AutoMaterialize : DailyModuleBase
 
     private bool IsEnvironmentValid()
     {
-        if (IsInventoryFull(PlayerInventories))
+        if (PlayerInventories.IsFull())
         {
             TaskHelper.Abort();
             return false;
         }
 
-        if (DService.Condition[ConditionFlag.Mounted])
+        if (DService.Instance().Condition[ConditionFlag.Mounted])
         {
             TaskHelper.Abort();
             NotificationError(GetLoc("AutoMaterialize-Notice-OnMount"));
@@ -115,7 +115,7 @@ public unsafe class AutoMaterialize : DailyModuleBase
         }
 
         if (OccupiedInEvent) return false;
-        if (DService.Condition[ConditionFlag.InCombat]) return false;
+        if (DService.Instance().Condition[ConditionFlag.InCombat]) return false;
 
         return true;
     }
@@ -203,16 +203,16 @@ public unsafe class AutoMaterialize : DailyModuleBase
         var addon = MaterializeDialog;
         if (addon == null) return;
 
-        Callback(addon, true, 0);
+        addon->Callback(0);
     }
 
     protected override void Uninit()
     {
         CommandManager.RemoveSubCommand(Command);
         
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         OnAddon(AddonEvent.PreFinalize, null);
         
-        DService.AddonLifecycle.UnregisterListener(OnDialogAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnDialogAddon);
     }
 }

@@ -24,9 +24,9 @@ public unsafe class AutoInventoryTransfer : DailyModuleBase
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 2_000 };
+        TaskHelper ??= new() { TimeoutMS = 2_000 };
 
-        DService.ContextMenu.OnMenuOpened += OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened += OnContextMenuOpened;
     }
 
     protected override void ConfigUI() => ConflictKeyText();
@@ -35,19 +35,19 @@ public unsafe class AutoInventoryTransfer : DailyModuleBase
     {
         if (!IsConflictKeyPressed() || !IsInventoryOpen()) return;
         
-        TaskHelper.Enqueue(() => IsAddonAndNodesReady(ContextMenuXIV));
+        TaskHelper.Enqueue(() => ContextMenuXIV->IsAddonAndNodesReady());
         TaskHelper.Enqueue(() => { ClickContextMenu(MenuTexts); });
         
         return;
 
         bool IsInventoryOpen()
-            => IsAddonAndNodesReady(Inventory)          ||
-               IsAddonAndNodesReady(InventoryLarge)     ||
-               IsAddonAndNodesReady(InventoryExpansion) ||
-               IsAddonAndNodesReady(InventoryRetainer)  ||
-               IsAddonAndNodesReady(InventoryRetainerLarge);
+            => Inventory->IsAddonAndNodesReady()          ||
+               InventoryLarge->IsAddonAndNodesReady()     ||
+               InventoryExpansion->IsAddonAndNodesReady() ||
+               InventoryRetainer->IsAddonAndNodesReady()  ||
+               InventoryRetainerLarge->IsAddonAndNodesReady();
     }
 
     protected override void Uninit() => 
-        DService.ContextMenu.OnMenuOpened -= OnContextMenuOpened;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnContextMenuOpened;
 }

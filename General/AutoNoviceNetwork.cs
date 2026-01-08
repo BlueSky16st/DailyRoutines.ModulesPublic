@@ -30,7 +30,7 @@ public unsafe class AutoNoviceNetwork : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
         
-        TaskHelper ??= new() { TimeLimitMS = 5_000 };
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
         
         AfkTimer           ??= new(10_000);
         AfkTimer.Elapsed   +=  OnAfkStateCheck;
@@ -46,13 +46,13 @@ public unsafe class AutoNoviceNetwork : DailyModuleBase
             IsJoined = IsInNoviceNetwork();
         }
         
-        ImGui.Text($"{GetLoc("AutoNoviceNetwork-JoinState")}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoNoviceNetwork-JoinState")}:");
         
         ImGui.SameLine();
         ImGui.TextColored(IsJoined ? ImGuiColors.HealerGreen : ImGuiColors.DPSRed,
                           IsJoined ? "√" : "×");
         
-        ImGui.Text($"{GetLoc("AutoNoviceNetwork-AttemptedTimes")}:");
+        ImGui.TextUnformatted($"{GetLoc("AutoNoviceNetwork-AttemptedTimes")}:");
 
         ImGui.SameLine();
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{TryTimes}");
@@ -87,7 +87,7 @@ public unsafe class AutoNoviceNetwork : DailyModuleBase
         TaskHelper.Enqueue(() =>
         {
             if (PlayerState.Instance()->IsPlayerStateFlagSet(PlayerStateFlag.IsNoviceNetworkAutoJoinEnabled)) return;
-            ChatManager.SendMessage("/beginnerchannel on");
+            ChatManager.Instance().SendMessage("/beginnerchannel on");
         });
 
         TaskHelper.Enqueue(TryJoin);

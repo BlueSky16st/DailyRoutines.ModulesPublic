@@ -3,16 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using DailyRoutines.Abstracts;
-using DailyRoutines.Helpers;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class AutoRetarget : DailyModuleBase
+public unsafe class AutoRetarget : DailyModuleBase
 {
-    private static Config ModuleConfig = null!;
-
     public override ModuleInfo Info { get; } = new()
     {
         Title       = GetLoc("AutoRetargetTitle"),
@@ -20,49 +18,44 @@ public class AutoRetarget : DailyModuleBase
         Category    = ModuleCategories.General,
         Author      = ["KirisameVanilla"],
     };
-
-    private class Config : ModuleConfiguration
+    
+    private static Config ModuleConfig = null!;
+    
+    protected override void Init()
     {
-        public bool MarkerTrack;
-        public string DisplayName = GetLoc("None");
-        public bool PrioritizeForlorn;
+        ModuleConfig =   LoadConfig<Config>() ?? new();
+        TaskHelper   ??= new() { TimeoutMS = 15_000 };
+        
+        FrameworkManager.Instance().Reg(OnUpdate, true, 1000);
     }
 
+    protected override void Uninit() => 
+        FrameworkManager.Instance().Unreg(OnUpdate);
+    
     protected override void ConfigUI()
     {
         if (ImGui.Checkbox(GetLoc("AutoRetarget-PrioritizeForlorn"), ref ModuleConfig.PrioritizeForlorn)) 
             ModuleConfig.Save(this);
 
         ImGui.InputText(GetLoc("Target"), ref ModuleConfig.DisplayName, 64);
-        if (ImGui.Button(GetLoc("AutoRetarget-SetToTarget")) && TargetManager.Target is not null)
+        if (ImGui.Button(GetLoc("AutoRetarget-SetToTarget")) && TargetManager.Target is { } target)
         {
-            ModuleConfig.DisplayName = TargetManager.Target is IPlayerCharacter ipc
-                                           ? $"{TargetManager.Target?.Name}@{((IPlayerCharacter)TargetManager.Target).HomeWorld.ValueNullable?.Name}"
-                                           : $"{TargetManager.Target?.Name}";
+            ModuleConfig.DisplayName = TargetManager.Target is IPlayerCharacter player
+                                           ? $"{player.Name}@{player.HomeWorld.Value.Name}"
+                                           : $"{target.Name}";
             ModuleConfig.Save(this);
         }
         
         ImGui.SameLine();
         if (ImGui.Button(GetLoc("Clear")))
         {
-            ModuleConfig.DisplayName = GetLoc("None"); ;
+            ModuleConfig.DisplayName = GetLoc("None");
             ModuleConfig.Save(this);
         }
 
         if (ImGui.Checkbox(GetLoc("AutoRetarget-UseMarkerTrack"), ref ModuleConfig.MarkerTrack) && !ModuleConfig.MarkerTrack)
             ClearMarkers();
     }
-
-    protected override void Init()
-    {
-        ModuleConfig =   LoadConfig<Config>() ?? new();
-        TaskHelper   ??= new() { TimeLimitMS = 15_000 };
-        
-        FrameworkManager.Reg(OnUpdate, true, 1000);
-    }
-
-    protected override void Uninit() => 
-        FrameworkManager.Unreg(OnUpdate);
 
     private void OnUpdate(IFramework framework)
     {
@@ -73,7 +66,7 @@ public class AutoRetarget : DailyModuleBase
         }
 
         List<IGameObject> found = [];
-        foreach (var igo in DService.ObjectTable)
+        foreach (var igo in DService.Instance().ObjectTable)
         {
             var objName = igo is IPlayerCharacter ipc
                               ? $"{igo.Name}@{ipc.HomeWorld.ValueNullable?.Name}"
@@ -107,19 +100,19 @@ public class AutoRetarget : DailyModuleBase
         TaskHelper.Abort();
         TaskHelper.Enqueue(() =>
         {
-            var flagPos = new Vector2(targetPos.X, targetPos.Z);
+            var flagPos  = new Vector2(targetPos.X, targetPos.Z);
             var currentY = targetPos.Y;
-            var counter = 0;
+            var counter  = 0;
 
             foreach (var fieldMarkerPoint in Enum.GetValues<FieldMarkerPoint>())
             {
-                FieldMarkerHelper.PlaceLocal(fieldMarkerPoint, flagPos.ToVector3(currentY - 2 + (counter * 5)), true);
+                MarkingController.Instance()->PlaceFieldMarkerLocal(fieldMarkerPoint, flagPos.ToVector3(currentY - 2 + (counter * 5)));
                 counter++;
             }
-        }, name:"放置标点");
+        }, name: "放置标点");
     }
 
-    private static unsafe void ClearMarkers()
+    private static void ClearMarkers()
     {
         var instance = MarkingController.Instance();
         if (instance == null) return;
@@ -127,6 +120,13 @@ public class AutoRetarget : DailyModuleBase
         var array = instance->FieldMarkers.ToArray();
         if (array.Count(x => x.Active) != 8) return;
         if (array.Select(x => x.Position.ToVector2()).ToHashSet().Count == 1)
-            Enumerable.Range(0, 8).ForEach(x => FieldMarkerHelper.PlaceLocal((uint)x, default, false));
+            Enumerable.Range(0, 8).ForEach(x => MarkingController.Instance()->ClearFieldMarkerLocal((FieldMarkerPoint)x));
+    }
+    
+    private class Config : ModuleConfiguration
+    {
+        public bool   MarkerTrack;
+        public string DisplayName = GetLoc("None");
+        public bool   PrioritizeForlorn;
     }
 }

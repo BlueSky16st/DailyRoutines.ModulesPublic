@@ -23,18 +23,18 @@ public unsafe class FastRidePillion : DailyModuleBase
     protected override void Init()
     {
         AgentContextReceiveEventHook ??=
-            DService.Hook.HookFromAddress<AgentReceiveEventDelegate>(GetVFuncByName(AgentContext.Instance()->VirtualTable, "ReceiveEvent"),
+            DService.Instance().Hook.HookFromAddress<AgentReceiveEventDelegate>(AgentContext.Instance()->VirtualTable->GetVFuncByName("ReceiveEvent"),
                                                                      AgentContextReceiveEventDetour);
         AgentContextReceiveEventHook.Enable();
 
-        DService.Condition.ConditionChange += OnCondition;
+        DService.Instance().Condition.ConditionChange += OnCondition;
     }
 
     private static void OnCondition(ConditionFlag flag, bool value)
     {
         if (flag != ConditionFlag.RidingPillion || !value) return;
 
-        if (InfosOm.ContextMenuXIV != null && IsAddonAndNodesReady(InfosOm.ContextMenuXIV))
+        if (InfosOm.ContextMenuXIV != null && InfosOm.ContextMenuXIV->IsAddonAndNodesReady())
             InfosOm.ContextMenuXIV->Close(true);
     }
 
@@ -67,5 +67,5 @@ public unsafe class FastRidePillion : DailyModuleBase
     }
 
     protected override void Uninit() => 
-        DService.Condition.ConditionChange -= OnCondition;
+        DService.Instance().Condition.ConditionChange -= OnCondition;
 }

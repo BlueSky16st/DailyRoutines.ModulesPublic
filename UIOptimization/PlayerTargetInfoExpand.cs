@@ -26,17 +26,17 @@ public unsafe class PlayerTargetInfoExpand : DailyModuleBase
     [
         new("/Name/", "名称", c => c.Name.TextValue),
         new("/Job/", "职业",
-            c => c.ClassJob.ValueNullable?.Name.ExtractText() ?? LuminaGetter.GetRow<ClassJob>(0)!.Value.Name.ExtractText()),
+            c => c.ClassJob.ValueNullable?.Name.ToString() ?? LuminaGetter.GetRow<ClassJob>(0)!.Value.Name.ToString()),
         new("/Level/", "等级", c => c.Level.ToString()),
         new("/FCTag/", "部队", c => c.CompanyTag.TextValue),
         new("/OnlineStatus/", "在线状态",
-            c => string.IsNullOrWhiteSpace(c.OnlineStatus.ValueNullable?.Name.ExtractText())
-                     ? LuminaGetter.GetRow<OnlineStatus>(47)!.Value.Name.ExtractText()
-                     : c.OnlineStatus.ValueNullable?.Name.ExtractText()),
-        new("/Mount/", "坐骑", c => LuminaGetter.GetRow<Mount>(c.ToStruct()->Mount.MountId)!.Value.Singular.ExtractText()),
-        new("/HomeWorld/", "原始服务器", c => LuminaGetter.GetRow<World>(c.ToStruct()->HomeWorld)!.Value.Name.ExtractText()),
+            c => string.IsNullOrWhiteSpace(c.OnlineStatus.ValueNullable?.Name.ToString())
+                     ? LuminaGetter.GetRow<OnlineStatus>(47)!.Value.Name.ToString()
+                     : c.OnlineStatus.ValueNullable?.Name.ToString()),
+        new("/Mount/", "坐骑", c => LuminaGetter.GetRow<Mount>(c.ToStruct()->Mount.MountId)!.Value.Singular.ToString()),
+        new("/HomeWorld/", "原始服务器", c => LuminaGetter.GetRow<World>(c.ToStruct()->HomeWorld)!.Value.Name.ToString()),
         new("/Emote/", "情感动作",
-            c => LuminaGetter.GetRow<Emote>(c.ToStruct()->EmoteController.EmoteId)!.Value.Name.ExtractText()),
+            c => LuminaGetter.GetRow<Emote>(c.ToStruct()->EmoteController.EmoteId)!.Value.Name.ToString()),
         new("/TargetsTarget/", "目标的目标", c => c.TargetObject?.Name.TextValue ?? ""),
         new("/ShieldValue/", "盾值 (百分比)", c => c.ShieldPercentage.ToString()),
         new("/CurrentHP/", "当前生命值", c => c.CurrentHp.ToString()),
@@ -56,11 +56,11 @@ public unsafe class PlayerTargetInfoExpand : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "_TargetInfo", UpdateTargetInfo);
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "_TargetInfoMainTarget",
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "_TargetInfo", UpdateTargetInfo);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "_TargetInfoMainTarget",
                                                 UpdateTargetInfoMainTarget);
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "_FocusTargetInfo", UpdateFocusTargetInfo);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "_FocusTargetInfo", UpdateFocusTargetInfo);
     }
 
     protected override void ConfigUI()
@@ -80,17 +80,17 @@ public unsafe class PlayerTargetInfoExpand : DailyModuleBase
         {
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             ImGui.TableNextColumn();
-            ImGui.Text(Lang.Get("PlayerTargetInfoExpand-AvailablePayload"));
+            ImGui.TextUnformatted(Lang.Get("PlayerTargetInfoExpand-AvailablePayload"));
             ImGui.TableNextColumn();
-            ImGui.Text(Lang.Get("Description"));
+            ImGui.TextUnformatted(Lang.Get("Description"));
 
             foreach (var payload in Payloads)
             {
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
-                ImGui.Text(payload.Placeholder);
+                ImGui.TextUnformatted(payload.Placeholder);
                 ImGui.TableNextColumn();
-                ImGui.Text(payload.Description);
+                ImGui.TextUnformatted(payload.Description);
             }
 
             ImGui.EndTable();
@@ -109,23 +109,23 @@ public unsafe class PlayerTargetInfoExpand : DailyModuleBase
 
                 ImGui.TableNextColumn();
                 ImGui.AlignTextToFramePadding();
-                ImGui.Text($"{categoryTitle}:");
+                ImGui.TextUnformatted($"{categoryTitle}:");
 
                 ImGui.TableNextColumn();
                 ImGui.SetNextItemWidth(-1f);
                 if (ImGui.InputText($"###{categoryTitle}", ref config, 64))
                     SaveConfig(ModuleConfig);
 
-                if (DService.ObjectTable.LocalPlayer != null && DService.ObjectTable.LocalPlayer is ICharacter chara)
+                if (DService.Instance().ObjectTable.LocalPlayer != null && DService.Instance().ObjectTable.LocalPlayer is ICharacter chara)
                 {
                     ImGui.TableNextRow();
 
                     ImGui.TableNextColumn();
                     ImGui.AlignTextToFramePadding();
-                    ImGui.Text($"{Lang.Get("Example")}:");
+                    ImGui.TextUnformatted($"{Lang.Get("Example")}:");
 
                     ImGui.TableNextColumn();
-                    ImGui.Text(ReplacePatterns(config, Payloads, chara));
+                    ImGui.TextUnformatted(ReplacePatterns(config, Payloads, chara));
                 }
 
                 ImGui.EndTable();
@@ -193,9 +193,9 @@ public unsafe class PlayerTargetInfoExpand : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(UpdateTargetInfo);
-        DService.AddonLifecycle.UnregisterListener(UpdateTargetInfoMainTarget);
-        DService.AddonLifecycle.UnregisterListener(UpdateFocusTargetInfo);
+        DService.Instance().AddonLifecycle.UnregisterListener(UpdateTargetInfo);
+        DService.Instance().AddonLifecycle.UnregisterListener(UpdateTargetInfoMainTarget);
+        DService.Instance().AddonLifecycle.UnregisterListener(UpdateFocusTargetInfo);
     }
 
     private class Payload(string placeholder, string description, Func<ICharacter, string> valueFunc)

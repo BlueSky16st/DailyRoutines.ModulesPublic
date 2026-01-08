@@ -42,7 +42,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
         
         CancelSource ??= new();
 
-        DService.ContextMenu.OnMenuOpened += OnMenuOpen;
+        DService.Instance().ContextMenu.OnMenuOpened += OnMenuOpen;
     }
 
     protected override void ConfigUI() => 
@@ -60,7 +60,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
     {
         if (args.Target is MenuTargetInventory) return false;
         var menuTarget = (MenuTargetDefault)args.Target;
-        var agent = DService.Gui.FindAgentInterface("ChatLog");
+        var agent = DService.Instance().Gui.FindAgentInterface("ChatLog");
         if (agent != nint.Zero && *(uint*)(agent + 0x948 + 8) == 3) return false;
 
         var judgeCriteria0 = menuTarget.TargetCharacter != null;
@@ -79,15 +79,15 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
 
                 if ((nint)agentBlackList != nint.Zero && agentBlackList->AgentInterface.IsAgentActive())
                 {
-                    var playerName = agentBlackList->SelectedPlayerName.ExtractText();
-                    var serverName = agentBlackList->SelectedPlayerFullName.ExtractText()
+                    var playerName = agentBlackList->SelectedPlayerName.ToString();
+                    var serverName = agentBlackList->SelectedPlayerFullName.ToString()
                                                                            .TrimStart(playerName.ToCharArray());
 
                     TargetChara = new()
                     {
                         Name  = playerName,
                         World = serverName,
-                        WorldID = LuminaGetter.Get<World>().FirstOrDefault(x => x.Name.ExtractText().Contains(serverName, StringComparison.OrdinalIgnoreCase)).RowId
+                        WorldID = LuminaGetter.Get<World>().FirstOrDefault(x => x.Name.ToString().Contains(serverName, StringComparison.OrdinalIgnoreCase)).RowId
                     };
                     return true;
                 }
@@ -99,7 +99,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
                 TargetChara = new()
                 {
                     Name = menuTarget.TargetName, 
-                    World = menuTarget.TargetHomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty,
+                    World = menuTarget.TargetHomeWorld.ValueNullable?.Name.ToString() ?? string.Empty,
                     WorldID = menuTarget.TargetHomeWorld.RowId
                 };
                 return true;
@@ -126,7 +126,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
                 TargetChara = new CharacterSearchInfo()
                 {
                     Name    = menuTarget.TargetCharacter.Name,
-                    World   = menuTarget.TargetCharacter.HomeWorld.ValueNullable?.Name.ExtractText(),
+                    World   = menuTarget.TargetCharacter.HomeWorld.ValueNullable?.Name.ToString(),
                     WorldID = menuTarget.TargetCharacter.HomeWorld.RowId
                 };
             }
@@ -134,8 +134,8 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
             {
                 TargetChara = new CharacterSearchInfo()
                 {
-                    Name    = chara.Name.ExtractText(),
-                    World   = LuminaGetter.GetRow<World>(((Character*)chara.Address)->HomeWorld)?.Name.ExtractText() ?? string.Empty,
+                    Name    = chara.Name.ToString(),
+                    World   = LuminaGetter.GetRow<World>(((Character*)chara.Address)->HomeWorld)?.Name.ToString() ?? string.Empty,
                     WorldID = ((Character*)chara.Address)->HomeWorld
                 };
             }
@@ -144,7 +144,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
                 TargetChara = new()
                 {
                     Name = menuTarget.TargetName, 
-                    World = menuTarget.TargetHomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty,
+                    World = menuTarget.TargetHomeWorld.ValueNullable?.Name.ToString() ?? string.Empty,
                     WorldID = menuTarget.TargetHomeWorld.RowId
                 };
             }
@@ -155,7 +155,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.ContextMenu.OnMenuOpened -= OnMenuOpen;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnMenuOpen;
         
         CancelSource?.Cancel();
         CancelSource?.Dispose();
@@ -270,7 +270,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
         
         protected override void OnClicked(IMenuItemClickedArgs args)
         {
-            DService.Framework.RunOnTick(async () =>
+            DService.Instance().Framework.RunOnTick(async () =>
             {
                 if (TargetChara == null) return;
 
@@ -369,7 +369,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
         {
             if (TargetChara == null) return;
 
-            var dcName = LuminaGetter.GetRow<World>(TargetChara.WorldID)?.DataCenter.ValueNullable?.Name.ExtractText() ?? "";
+            var dcName = LuminaGetter.GetRow<World>(TargetChara.WorldID)?.DataCenter.ValueNullable?.Name.ToString() ?? "";
             Util.OpenLink(string.Format(Url, TargetChara.Name.Replace(' ', '+'), dcName));
         }
     }
@@ -384,7 +384,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
         private const string PlayerInfo = "https://www.lalachievements.com/char/{0}/";
 
         protected override void OnClicked(IMenuItemClickedArgs args) =>
-            DService.Framework.RunOnTick(async () =>
+            DService.Instance().Framework.RunOnTick(async () =>
             {
                 if (TargetChara == null) return;
 
@@ -418,7 +418,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
         private const string SearchAPI  = "https://tomestone.gg/search/autocomplete?term={0}"; // 搜索词, 空格 %20
 
         protected override void OnClicked(IMenuItemClickedArgs args) =>
-            DService.Framework.RunOnTick(async () =>
+            DService.Instance().Framework.RunOnTick(async () =>
             {
                 if (TargetChara == null) return;
 

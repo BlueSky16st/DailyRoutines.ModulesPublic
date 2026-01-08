@@ -15,7 +15,7 @@ public class AutoQuestAccept : DailyModuleBase
     };
 
     protected override void Init() => 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "JournalAccept", OnAddonSetup);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "JournalAccept", OnAddonSetup);
 
     protected override void ConfigUI() => 
         ConflictKeyText();
@@ -33,9 +33,9 @@ public class AutoQuestAccept : DailyModuleBase
         var isAcceptable = addon->AtkValues[4].UInt;
         if (isAcceptable == 0) return;
         
-        Callback(addon, true, 3, questID);
+        addon->Callback(3, questID);
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddonSetup);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSetup);
 }

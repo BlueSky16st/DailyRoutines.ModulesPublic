@@ -74,9 +74,9 @@ public class BetterFateProgressUI : DailyModuleBase
         Overlay.Flags &= ~ImGuiWindowFlags.NoTitleBar;
         Overlay.Flags |= ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
         Overlay.SizeConstraints = new() { MinimumSize = ChildSize, };
-        Overlay.WindowName = $"{LuminaGetter.GetRow<Addon>(3933)!.Value.Text.ExtractText()}###BetterFateProgressUI";
+        Overlay.WindowName = $"{LuminaGetter.GetRow<Addon>(3933)!.Value.Text.ToString()}###BetterFateProgressUI";
 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "FateProgress", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "FateProgress", OnAddon);
     }
 
     protected override void ConfigUI()
@@ -105,7 +105,7 @@ public class BetterFateProgressUI : DailyModuleBase
 
     protected override void OverlayUI()
     {
-        using var fontPush = FontManager.UIFont120.Push();
+        using var fontPush = FontManager.Instance().UIFont120.Push();
         DrawBicolorGemComponent();
         DrawFateProgressTabs();
     }
@@ -121,7 +121,7 @@ public class BetterFateProgressUI : DailyModuleBase
 
             ImGui.SameLine();
             ImGui.SetCursorPosY(ImGui.GetCursorPosY() + (2f * GlobalFontScale));
-            ImGui.Text($"{BicolorGemAmount}/{BicolorGemCap}");
+            ImGui.TextUnformatted($"{BicolorGemAmount}/{BicolorGemCap}");
         }
         BicolorGemComponentSize = ImGui.GetItemRectSize();
         ImGui.SetCursorPos(originalPos);
@@ -189,7 +189,7 @@ public class BetterFateProgressUI : DailyModuleBase
 
     private static void RefreshBackgroundTextures()
     {
-        DService.Framework.Run(() =>
+        DService.Instance().Framework.Run(() =>
         {
             const string uldPath = "ui/uld/FateProgress.uld";
             
@@ -199,7 +199,7 @@ public class BetterFateProgressUI : DailyModuleBase
                 
                 for (var i = 0; i < zoneInfos.Count; i++)
                 {
-                    var texture = DService.PI.UiBuilder.LoadUld(uldPath).LoadTexturePart(texturePath, i);
+                    var texture = DService.Instance().PI.UiBuilder.LoadUld(uldPath).LoadTexturePart(texturePath, i);
                     zoneInfos[i].SetBackgroundTexture(texture);
                 }
             }
@@ -209,7 +209,7 @@ public class BetterFateProgressUI : DailyModuleBase
     private static void ObtainAllFateProgress()
     {
         foreach (var achivement in AchievementToZone.Keys)
-            ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.RequestAchievement, achivement);
+            ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.RequestAchievement, achivement);
     }
 
     private unsafe void OnAddon(AddonEvent type, AddonArgs args)
@@ -223,7 +223,7 @@ public class BetterFateProgressUI : DailyModuleBase
 
     protected override void Uninit()
     {
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
         
         CancelSource?.Cancel();
         CancelSource?.Dispose();
@@ -279,14 +279,14 @@ public class BetterFateProgressUI : DailyModuleBase
             
             ImGui.SetCursorPosY(ImGui.GetCursorPosY() + (8f * GlobalFontScale));
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (4f * GlobalFontScale));
-            ImGui.Text(name);
+            ImGui.TextUnformatted(name);
             
             ImGui.SetWindowFontScale(1f);
         }
 
         private void DrawFateProgress()
         {
-            if (!AchievementManager.TryGetAchievement(AchievementID, out var achievement))
+            if (!AchievementManager.Instance().TryGetAchievement(AchievementID, out var achievement))
                 return;
             
             var fateProgress = achievement.Current;
@@ -295,7 +295,7 @@ public class BetterFateProgressUI : DailyModuleBase
             var text = fateProgress > 6 ? $"{fateProgress - 6}/60" : $"{fateProgress}/6";
             ImGui.SetCursorPosY(ImGui.GetContentRegionMax().Y - ImGui.CalcTextSize(text).Y);
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (4f * GlobalFontScale));
-            ImGui.Text(text);
+            ImGui.TextUnformatted(text);
 
             DrawFinalProgress(fateProgress);
         }
@@ -304,7 +304,7 @@ public class BetterFateProgressUI : DailyModuleBase
         {
             var remainingProgress = 66 - fateProgress;
             var text = fateProgress == 66
-                           ? LuminaGetter.GetRow<Addon>(3930)!.Value.Text.ExtractText()
+                           ? LuminaGetter.GetRow<Addon>(3930)!.Value.Text.ToString()
                            : Lang.Get("BetterFateProgressUI-LeftFateAmount", remainingProgress);
 
             ImGui.SetWindowFontScale(0.95f);
@@ -325,7 +325,7 @@ public class BetterFateProgressUI : DailyModuleBase
                     agent->AgentInterface.Hide();
                 else
                 {
-                    agent->MapTitleString = *Utf8String.FromString(LuminaGetter.GetRow<Addon>(3933)!.Value.Text.ExtractText());
+                    agent->MapTitleString = *Utf8String.FromString(LuminaGetter.GetRow<Addon>(3933)!.Value.Text.ToString());
                     agent->OpenMapByMapId(zoneSheetRow.Map.RowId);
                 }
             }

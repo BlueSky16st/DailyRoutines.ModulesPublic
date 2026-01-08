@@ -10,7 +10,10 @@ using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.Gui.ContextMenu;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using Lumina.Excel.Sheets;
+using OmenTools.Extensions;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -36,23 +39,23 @@ public class MultiTargetTracker : DailyModuleBase
     {
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        FrameworkManager.Reg(OnUpdate, false, 1500);
-        DService.ClientState.TerritoryChanged += OnZoneChanged;
-        DService.ContextMenu.OnMenuOpened     += OnMenuOpen;
+        FrameworkManager.Instance().Reg(OnUpdate, false, 1500);
+        DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+        DService.Instance().ContextMenu.OnMenuOpened     += OnMenuOpen;
     }
 
     protected override void Uninit()
     {
-        DService.ContextMenu.OnMenuOpened -= OnMenuOpen;
-        FrameworkManager.Unreg(OnUpdate);
-        DService.ClientState.TerritoryChanged -= OnZoneChanged;
+        DService.Instance().ContextMenu.OnMenuOpened -= OnMenuOpen;
+        FrameworkManager.Instance().Unreg(OnUpdate);
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
 
         TempTrackedPlayers.Clear();
     }
 
     protected override void ConfigUI()
     {
-        ImGui.Text(GetLoc("MultiTargetTracker-TempTrackHelp"));
+        ImGui.TextUnformatted(GetLoc("MultiTargetTracker-TempTrackHelp"));
         
         ImGui.Spacing();
         
@@ -92,10 +95,10 @@ public class MultiTargetTracker : DailyModuleBase
             }
 
             ImGui.TableNextColumn();
-            ImGui.Text(player.LastSeen.ToShortDateString());
+            ImGui.TextUnformatted(player.LastSeen.ToShortDateString());
 
             ImGui.TableNextColumn();
-            ImGui.Text(player.LastSeenLocation);
+            ImGui.TextUnformatted(player.LastSeenLocation);
 
             var note = player.Note;
             ImGui.TableNextColumn();
@@ -120,14 +123,14 @@ public class MultiTargetTracker : DailyModuleBase
 
     private static unsafe void OnUpdate(IFramework framework)
     {
-        if (BetweenAreas || !IsScreenReady() || DService.ClientState.TerritoryType == 0) return;
+        if (BetweenAreas || !UIModule.IsScreenReady() || GameState.TerritoryType == 0) return;
         if (ModuleConfig.PermanentTrackedPlayers.Count == 0 && TempTrackedPlayers.Count == 0) return;
 
-        if (!LuminaGetter.TryGetRow<TerritoryType>(DService.ClientState.TerritoryType, out var currentZoneData)) return;
+        if (!LuminaGetter.TryGetRow<TerritoryType>(GameState.TerritoryType, out var currentZoneData)) return;
 
         Dictionary<ulong, Vector3> validPlayers = [];
 
-        foreach (var player in DService.ObjectTable)
+        foreach (var player in DService.Instance().ObjectTable)
         {
             if (validPlayers.Count >= 8) break;
 
@@ -168,14 +171,14 @@ public class MultiTargetTracker : DailyModuleBase
         PlaceFieldMarkers(validPlayers);
     }
 
-    private static void PlaceFieldMarkers(IReadOnlyDictionary<ulong, Vector3> founds)
+    private static unsafe void PlaceFieldMarkers(IReadOnlyDictionary<ulong, Vector3> founds)
     {
         var counter = 0U;
         foreach (var found in founds)
         {
             if (counter > 8) break;
 
-            FieldMarkerHelper.PlaceLocal(counter, found.Value, true);
+            MarkingController.Instance()->PlaceFieldMarkerLocal((FieldMarkerPoint)counter, found.Value);
             counter++;
         }
     }
@@ -207,7 +210,7 @@ public class MultiTargetTracker : DailyModuleBase
             var chara = ipc.ToStruct();
             ContentID = chara->ContentId;
             Name      = ipc.Name.TextValue;
-            WorldName = ipc.HomeWorld.ValueNullable?.Name.ExtractText();
+            WorldName = ipc.HomeWorld.ValueNullable?.Name.ToString();
         }
 
         public TrackPlayer() { }
@@ -245,7 +248,7 @@ public class MultiTargetTracker : DailyModuleBase
             if (args.Target is not MenuTargetDefault target) return;
 
             var data = new TrackPlayer(target.TargetContentId,
-                                       target.TargetName, target.TargetHomeWorld.ValueNullable?.Name.ExtractText());
+                                       target.TargetName, target.TargetHomeWorld.ValueNullable?.Name.ToString());
             if (!TempTrackedPlayers.Add(data))
             {
                 TempTrackedPlayers.Remove(data);
@@ -265,7 +268,7 @@ public class MultiTargetTracker : DailyModuleBase
         {
             var target = args.Target as MenuTargetDefault;
             if (IPlayerCharacter.Create(target.TargetObject.Address) is not { } player ||
-                string.IsNullOrEmpty(player.Name.ExtractText())                        ||
+                string.IsNullOrEmpty(player.Name.ToString())                        ||
                 player.ClassJob.RowId == 0)
                 return;
             

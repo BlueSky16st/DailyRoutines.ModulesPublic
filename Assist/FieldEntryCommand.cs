@@ -5,12 +5,15 @@ using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
 using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.Game.Event;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using Lumina.Excel.Sheets;
+using OmenTools.Extensions;
 using Action = System.Action;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class FieldEntryCommand : DailyModuleBase
+public unsafe class FieldEntryCommand : DailyModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
@@ -61,11 +64,11 @@ public class FieldEntryCommand : DailyModuleBase
 
     private static uint RedirectTargetZoneInMoon;
 
-    protected override unsafe void Init()
+    protected override void Init()
     {
-        TPHelper ??= new() { TimeLimitMS = 30_000 };
+        TPHelper ??= new() { TimeoutMS = 30_000 };
 
-        GamePacketManager.RegPreSendPacket(OnPreSendPacket);
+        GamePacketManager.Instance().RegPreSendPacket(OnPreSendPacket);
         
         CommandManager.AddCommand(Command, new(OnCommand) { HelpMessage = GetLoc("FieldEntryCommand-CommandHelp")} );
     }
@@ -91,7 +94,7 @@ public class FieldEntryCommand : DailyModuleBase
             ImGui.TableNextRow();
 
             ImGui.TableNextColumn();
-            ImGui.Text(command.Key);
+            ImGui.TextUnformatted(command.Key);
             
             if (ImGui.IsItemHovered())
                 ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
@@ -102,7 +105,7 @@ public class FieldEntryCommand : DailyModuleBase
             }
 
             ImGui.TableNextColumn();
-            ImGui.Text(ContentToPlaceName.TryGetValue(command.Value.Content, out var placeName) ? placeName : data.Name.ExtractText());
+            ImGui.TextUnformatted(ContentToPlaceName.TryGetValue(command.Value.Content, out var placeName) ? placeName : data.Name.ToString());
         }
     }
 
@@ -117,7 +120,7 @@ public class FieldEntryCommand : DailyModuleBase
         {
             if (!LuminaGetter.TryGetRow<ContentFinderCondition>(commandPair.Value.Content, out var data)) continue;
             
-            var contentName = ContentToPlaceName.TryGetValue(commandPair.Value.Content, out var placeName) ? placeName : data.Name.ExtractText();
+            var contentName = ContentToPlaceName.TryGetValue(commandPair.Value.Content, out var placeName) ? placeName : data.Name.ToString();
             if (args == commandPair.Key || contentName.Contains(args, StringComparison.OrdinalIgnoreCase))
             {
                 commandPair.Value.EnqueueAction();
@@ -127,7 +130,7 @@ public class FieldEntryCommand : DailyModuleBase
         }
     }
     
-    public static unsafe void OnPreSendPacket(ref bool isPrevented, int opcode, ref byte* packet, ref ushort priority)
+    public static void OnPreSendPacket(ref bool isPrevented, int opcode, ref byte* packet, ref ushort priority)
     {
         if (RedirectTargetZoneInMoon == 0 || GameState.TerritoryType != 959) return;
 
@@ -156,28 +159,28 @@ public class FieldEntryCommand : DailyModuleBase
         if (GameState.TerritoryType != 135)
         {
             TPHelper.Enqueue(() => MovementManager.TeleportZone(135));
-            TPHelper.Enqueue(() => GameState.TerritoryType == 135  && IsScreenReady() &&
-                                   !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
+            TPHelper.Enqueue(() => GameState.TerritoryType == 135             && UIModule.IsScreenReady() &&
+                                   !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
         }
 
         TPHelper.Enqueue(() =>
         {
             TPHelper.Enqueue(() =>
             {
-                if (!IsEventIDNearby(721694))
+                if (!EventFramework.Instance()->IsEventIDNearby(721694))
                 {
                     TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(LowerLaNosceaDefaultPosition), weight: 2);
-                    TPHelper.Enqueue(() => GameState.TerritoryType == 135  && IsScreenReady() &&
-                                           !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
+                    TPHelper.Enqueue(() => GameState.TerritoryType == 135             && UIModule.IsScreenReady() &&
+                                           !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
                 }
                 return true;
             });
 
             TPHelper.Enqueue(() =>
             {
-                if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return false;
+                if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return false;
 
-                GamePacketManager.SendPackt(new EventStartPackt(localPlayer.GameObjectID, 721694));
+                GamePacketManager.Instance().SendPackt(new EventStartPackt(localPlayer.GameObjectID, 721694));
                 return true;
             });
 
@@ -187,13 +190,13 @@ public class FieldEntryCommand : DailyModuleBase
             TPHelper.Enqueue(() => ClickSelectYesnoYes());
 
             // 等待进入无人岛
-            TPHelper.Enqueue(() => GameState.TerritoryType == 1055 && DService.ObjectTable.LocalPlayer != null);
+            TPHelper.Enqueue(() => GameState.TerritoryType == 1055 && DService.Instance().ObjectTable.LocalPlayer != null);
             TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(IslandDefaultPosition));
         });
     }
 
     // 云冠群岛
-    private static unsafe void EnqueueDiadem()
+    private static void EnqueueDiadem()
     {
         MovementManager.TeleportFirmament();
         TPHelper.Enqueue(() => GameState.TerritoryType == 886 && !MovementManager.IsManagerBusy);
@@ -206,7 +209,7 @@ public class FieldEntryCommand : DailyModuleBase
             TPHelper.Enqueue(() =>
             {
                 if (!Throttler.Throttle("FieldEntryCommand-Diadem")) return false;
-                if (!IsScreenReady()) return false;
+                if (!UIModule.IsScreenReady()) return false;
 
                 new EventStartPackt(LocalPlayerState.EntityID, 721532).Send();
                 return OccupiedInEvent;
@@ -241,19 +244,19 @@ public class FieldEntryCommand : DailyModuleBase
         if (GameState.TerritoryType != 628)
         {
             TPHelper.Enqueue(() => MovementManager.TPSmart_BetweenZone(628, KuganeDefaultPosition, false, true));
-            TPHelper.Enqueue(() => GameState.TerritoryType == 628  && IsScreenReady() &&
-                                   !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
+            TPHelper.Enqueue(() => GameState.TerritoryType == 628             && UIModule.IsScreenReady() &&
+                                   !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
         }
 
         TPHelper.Enqueue(() =>
         {
             TPHelper.Enqueue(() =>
             {
-                if (!IsEventIDNearby(721355))
+                if (!EventFramework.Instance()->IsEventIDNearby(721355))
                 {
                     TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(KuganeDefaultPosition), weight: 2);
-                    TPHelper.Enqueue(() => GameState.TerritoryType == 628  && IsScreenReady() &&
-                                           !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
+                    TPHelper.Enqueue(() => GameState.TerritoryType == 628             && UIModule.IsScreenReady() &&
+                                           !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
                 }
                 
                 return true;
@@ -261,9 +264,9 @@ public class FieldEntryCommand : DailyModuleBase
 
             TPHelper.Enqueue(() =>
             {
-                if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return false;
+                if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return false;
 
-                GamePacketManager.SendPackt(new EventStartPackt(localPlayer.GameObjectID, 721355));
+                GamePacketManager.Instance().SendPackt(new EventStartPackt(localPlayer.GameObjectID, 721355));
                 return true;
             });
 
@@ -288,28 +291,28 @@ public class FieldEntryCommand : DailyModuleBase
         if (GameState.TerritoryType != 915)
         {
             TPHelper.Enqueue(() => MovementManager.TeleportZone(915, false, true));
-            TPHelper.Enqueue(() => GameState.TerritoryType == 915  && IsScreenReady() &&
-                                   !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
+            TPHelper.Enqueue(() => GameState.TerritoryType == 915             && UIModule.IsScreenReady() &&
+                                   !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
         }
 
         TPHelper.Enqueue(() =>
         {
             TPHelper.Enqueue(() =>
             {
-                if (!IsEventIDNearby(721601))
+                if (!EventFramework.Instance()->IsEventIDNearby(721601))
                 {
                     TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(GangosDefaultPosition), weight: 2);
-                    TPHelper.Enqueue(() => GameState.TerritoryType == 915  && IsScreenReady() &&
-                                           !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
+                    TPHelper.Enqueue(() => GameState.TerritoryType == 915             && UIModule.IsScreenReady() &&
+                                           !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
                 }
                 return true;
             });
 
             TPHelper.Enqueue(() =>
             {
-                if (DService.ObjectTable.LocalPlayer is not { } localPlayer) return false;
+                if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer) return false;
 
-                GamePacketManager.SendPackt(new EventStartPackt(localPlayer.GameObjectID, 721601));
+                GamePacketManager.Instance().SendPackt(new EventStartPackt(localPlayer.GameObjectID, 721601));
                 return true;
             });
 
@@ -333,18 +336,18 @@ public class FieldEntryCommand : DailyModuleBase
         if (GameState.TerritoryType != 959)
         {
             TPHelper.Enqueue(() => MovementManager.TPSmart_BetweenZone(959, CosmicDefaultPosition, false, true));
-            TPHelper.Enqueue(() => GameState.TerritoryType == 959 && IsScreenReady() && !MovementManager.IsManagerBusy);
+            TPHelper.Enqueue(() => GameState.TerritoryType == 959 && UIModule.IsScreenReady() && !MovementManager.IsManagerBusy);
         }
 
         TPHelper.Enqueue(() =>
         {
             TPHelper.Enqueue(() =>
             {
-                if (!IsEventIDNearby(327855))
+                if (!EventFramework.Instance()->IsEventIDNearby(327855))
                 {
                     TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(CosmicDefaultPosition), weight: 2);
-                    TPHelper.Enqueue(() => GameState.TerritoryType == 959  && IsScreenReady() &&
-                                           !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
+                    TPHelper.Enqueue(() => GameState.TerritoryType == 959             && UIModule.IsScreenReady() &&
+                                           !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
                 }
                 
                 return true;
@@ -360,20 +363,20 @@ public class FieldEntryCommand : DailyModuleBase
     {
         if (GameState.TerritoryType == 1278) //已经在幻象村了
         {
-            TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
+            TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy);
             TPHelper.Enqueue(() =>
             {
-                if (!IsEventIDNearby(721825))
+                if (!EventFramework.Instance()->IsEventIDNearby(721825))
                 {
                     TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(PhantomVillagePosition), weight: 2);
-                    TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, 
+                    TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, 
                                      weight: 2);
                 }
                 
                 return true;
             });
             
-            TPHelper.Enqueue(() => IsScreenReady());
+            TPHelper.Enqueue(() => UIModule.IsScreenReady());
             TPHelper.Enqueue(() => new EventStartPackt(LocalPlayerState.EntityID, 721825).Send());
             TPHelper.Enqueue(() => ClickSelectString(0));
             TPHelper.Enqueue(() => ClickSelectString(0));
@@ -387,24 +390,24 @@ public class FieldEntryCommand : DailyModuleBase
         TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && LocalPlayerState.Object != null);
         TPHelper.Enqueue(() =>
         {
-            if (!IsEventIDNearby(721825))
+            if (!EventFramework.Instance()->IsEventIDNearby(721825))
             {
                 TPHelper.Enqueue(() => MovementManager.TPSmart_InZone(PhantomVillagePosition),                                                          weight: 2);
-                TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && !DService.Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
+                TPHelper.Enqueue(() => GameState.TerritoryType == 1278 && !DService.Instance().Condition[ConditionFlag.Jumping] && !MovementManager.IsManagerBusy, weight: 2);
             }
                 
             return true;
         });
         
-        TPHelper.Enqueue(() => IsScreenReady());
+        TPHelper.Enqueue(() => UIModule.IsScreenReady());
         TPHelper.Enqueue(() => new EventStartPackt(LocalPlayerState.EntityID, 721825).Send());
         TPHelper.Enqueue(() => ClickSelectString(0));
         TPHelper.Enqueue(() => ClickSelectString(0));
     }
 
-    protected override unsafe void Uninit()
+    protected override void Uninit()
     {
-        GamePacketManager.Unreg(OnPreSendPacket);
+        GamePacketManager.Instance().Unreg(OnPreSendPacket);
         
         CommandManager.RemoveCommand(Command);
 

@@ -10,7 +10,9 @@ using Dalamud.Utility.Numerics;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Event;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using Lumina.Excel.Sheets;
+using OmenTools.Extensions;
 using TerritoryIntendedUse = FFXIVClientStructs.FFXIV.Client.Enums.TerritoryIntendedUse;
 
 namespace DailyRoutines.ModulesPublic;
@@ -20,7 +22,7 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
     public override ModuleInfo Info { get; } = new()
     {
         Title            = GetLoc("FastInstanceZoneChangeTitle"),
-        Description      = GetLoc("FastInstanceZoneChangeDescription", Command),
+        Description      = GetLoc("FastInstanceZoneChangeDescription", COMMAND),
         Category         = ModuleCategories.System,
         Author           = ["AtmoOmen", "KirisameVanilla"],
         ModulesRecommend = ["InstantTeleport"]
@@ -35,17 +37,17 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
         TerritoryIntendedUse.Town
     ];
 
-    private const string Command = "insc";
+    private const string COMMAND = "insc";
 
     private static Config        ModuleConfig = null!;
     private static IDtrBarEntry? Entry;
 
     protected override void Init()
     {
-        TaskHelper ??= new() { TimeLimitMS = 30_000 };
+        TaskHelper ??= new() { TimeoutMS = 30_000, ShowDebug = true };
         ModuleConfig = LoadConfig<Config>() ?? new();
 
-        CommandManager.AddSubCommand(Command, new(OnCommand) { HelpMessage = GetLoc("FastInstanceZoneChange-CommandHelp") });
+        CommandManager.AddSubCommand(COMMAND, new(OnCommand) { HelpMessage = GetLoc("FastInstanceZoneChange-CommandHelp") });
 
         Overlay ??= new(this);
         Overlay.WindowName = GetLoc("FastInstanceZoneChangeTitle");
@@ -53,19 +55,18 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
         if (ModuleConfig.AddDtrEntry)
             HandleDtrEntry(true);
 
-        FrameworkManager.Reg(OnUpdate, throttleMS: 5_000);
+        FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 5_000);
     }
 
     protected override void ConfigUI()
     {
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Command")}:");
         using (ImRaii.PushIndent())
-            ImGui.Text($"/pdr {Command} \u2192 {GetLoc("FastInstanceZoneChange-CommandHelp")}");
+            ImGui.TextUnformatted($"/pdr {COMMAND} \u2192 {GetLoc("FastInstanceZoneChange-CommandHelp")}");
 
-        ImGui.Spacing();
+        ImGui.NewLine();
 
-        if (ImGui.Checkbox(GetLoc("FastInstanceZoneChange-TeleportIfNotNearAetheryte"),
-                           ref ModuleConfig.TeleportIfNotNearAetheryte))
+        if (ImGui.Checkbox(GetLoc("FastInstanceZoneChange-TeleportIfNotNearAetheryte"), ref ModuleConfig.TeleportIfNotNearAetheryte))
             SaveConfig(ModuleConfig);
 
         if (ImGui.Checkbox(GetLoc("FastInstanceZoneChange-ConstantlyTry"), ref ModuleConfig.ConstantlyTry))
@@ -95,7 +96,7 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
             return;
         }
 
-        if (DService.KeyState[VirtualKey.ESCAPE])
+        if (DService.Instance().KeyState[VirtualKey.ESCAPE])
         {
             Overlay.IsOpen = false;
             if (SystemMenu != null)
@@ -111,15 +112,16 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
         
         ImGui.SetWindowPos((ImGui.GetMainViewport().Size / 2) - new Vector2(0.5f));
         
-        var count = InstancesManager.GetInstancesCount();
+        var count = InstancesManager.Instance().GetInstancesCount();
         for (uint i = 1; i <= count; i++)
         {
             if (i == InstancesManager.CurrentInstance) continue;
-            if (ImGui.Button($"{GetLoc("FastInstanceZoneChange-SwitchInstance", i.ToSEChar())}") |
-                DService.KeyState[(VirtualKey)(48 + i)])
+            
+            if (ImGui.Button($"{GetLoc("FastInstanceZoneChange-SwitchInstance", i.ToSESquareCount())}") |
+                DService.Instance().KeyState[(VirtualKey)(48 + i)])
             {
-                if (TaskHelper.IsBusy || BetweenAreas || DService.Condition[ConditionFlag.Casting]) continue;
-                ChatManager.SendMessage($"/pdr insc {i}");
+                if (TaskHelper.IsBusy || BetweenAreas || DService.Instance().Condition[ConditionFlag.Casting]) continue;
+                ChatManager.Instance().SendMessage($"/pdr insc {i}");
                 if (ModuleConfig.CloseAfterUsage) 
                     Overlay.IsOpen = false;
             }
@@ -130,38 +132,23 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
     {
         if (!ModuleConfig.AddDtrEntry || Entry == null || BetweenAreas) return;
         
-        Entry.Shown = InstancesManager.IsInstancedArea;
-    }
-
-    private static void OnTerritoryChanged(ushort zone = 0)
-    {
-        try
-        {
-            if (!ModuleConfig.AddDtrEntry || Entry == null) return;
-        
-            Entry.Text = !InstancesManager.IsInstancedArea
-                             ? string.Empty
-                             : GetLoc("AutoMarksFinder-RelayInstanceDisplay", InstancesManager.CurrentInstance.ToSEChar());
-            Entry.Shown = InstancesManager.IsInstancedArea;
-        }
-        catch
-        {
-            // ignored
-        }
+        Entry.Text = !InstancesManager.IsInstancedArea
+                         ? string.Empty
+                         : GetLoc("AutoMarksFinder-RelayInstanceDisplay", InstancesManager.CurrentInstance.ToSESquareCount());
+        Entry.Shown   = InstancesManager.IsInstancedArea;
+        Entry.Tooltip = ValidUses.Contains(GameState.TerritoryIntendedUse) ? GetLoc("FastInstanceZoneChange-DtrEntryTooltip") : string.Empty;
     }
     
     private void HandleDtrEntry(bool isAdd)
     {
         if (isAdd && Entry == null)
         {
-            Entry         ??= DService.DtrBar.Get("DailyRoutines-FastInstanceZoneChange");
+            Entry         ??= DService.Instance().DtrBar.Get("DailyRoutines-FastInstanceZoneChange");
             Entry.OnClick +=  _ => Overlay.IsOpen ^= true;
             Entry.Shown   =   false;
             Entry.Tooltip =   GetLoc("FastInstanceZoneChange-DtrEntryTooltip");
-            
-            DService.ClientState.TerritoryChanged += OnTerritoryChanged;
-            OnTerritoryChanged();
-            FrameworkManager.Reg(OnUpdate, throttleMS: 5_000);
+
+            FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 5_000);
             return;
         }
 
@@ -170,15 +157,14 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
             Entry.Remove();
             Entry = null;
             
-            FrameworkManager.Unreg(OnUpdate);
-            DService.ClientState.TerritoryChanged -= OnTerritoryChanged;
+            FrameworkManager.Instance().Unreg(OnUpdate);
         }
     }
 
     protected override void Uninit()
     {
         HandleDtrEntry(false);
-        CommandManager.RemoveSubCommand(Command);
+        CommandManager.RemoveSubCommand(COMMAND);
     }
 
     private void OnCommand(string command, string args)
@@ -226,106 +212,113 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
         var isAnyAetheryteNearby = IsAnyAetheryteNearby(out _);
         if (ModuleConfig.TeleportIfNotNearAetheryte && !isAnyAetheryteNearby)
         {
-            TaskHelper.Enqueue(
-                () => MovementManager.TeleportNearestAetheryte(default, DService.ClientState.TerritoryType, true),
-                weight:  2);
-            TaskHelper.DelayNext(500, string.Empty, false, 2);
+            TaskHelper.Enqueue(() => MovementManager.TeleportNearestAetheryte(default, GameState.TerritoryType, true), "传送到目标区域最近以太之光", weight: 2);
+            TaskHelper.DelayNext(500, "等待传送开始", weight: 2);
             TaskHelper.Enqueue(() =>
             {
                 if (!Throttler.Throttle("FastInstanceZoneChange-WaitTeleportFinish")) return false;
                 return IsAnyAetheryteNearby(out _);
-            }, weight:  2);
+            }, "传送到目标区域最近以太之光", weight: 2);
         }
 
         var currentMountID = 0U;
-        if (DService.Condition[ConditionFlag.Mounted])
-            currentMountID = DService.ObjectTable.LocalPlayer.CurrentMount?.RowId ?? 0;
+        if (DService.Instance().Condition[ConditionFlag.Mounted])
+            currentMountID = DService.Instance().ObjectTable.LocalPlayer.CurrentMount?.RowId ?? 0;
 
         TaskHelper.Enqueue(() =>
         {
-            if (!DService.Condition[ConditionFlag.Mounted]) return true;
+            if (!DService.Instance().Condition[ConditionFlag.Mounted]) return true;
             if (!Throttler.Throttle("FastInstanceZoneChange-WaitDismount", 100)) return false;
 
-            ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.Dismount);
-            if (MovementManager.TryDetectGroundDownwards(DService.ObjectTable.LocalPlayer.Position.WithY(300),
+            ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.Dismount);
+            if (MovementManager.TryDetectGroundDownwards(DService.Instance().ObjectTable.LocalPlayer.Position.WithY(300),
                                                          out var hitInfo) ?? false)
             {
                 MovementManager.TPMountAddress(hitInfo.Point with { Y = hitInfo.Point.Y - 0.5f });
-                UseActionManager.UseAction(ActionType.GeneralAction, 9);
+                UseActionManager.Instance().UseAction(ActionType.GeneralAction, 9);
             }
 
-            return !DService.Condition[ConditionFlag.Mounted];
-        }, weight:  2);
+            return !DService.Instance().Condition[ConditionFlag.Mounted];
+        }, "下坐骑", weight: 2);
 
         if (ModuleConfig.ConstantlyTry)
-            TaskHelper.Enqueue(() => EnqueueInstanceChange(targetInstance, 0), weight:  2);
+            TaskHelper.Enqueue(() => EnqueueInstanceChange(targetInstance, 0), "开始持续尝试切换副本区", weight: 2);
         else
-            TaskHelper.Enqueue(() => ChangeInstanceZone(targetInstance), weight:  2);
+            TaskHelper.Enqueue(() => ChangeInstanceZone(targetInstance), "切换副本区", weight: 2);
 
+        TaskHelper.Enqueue(() =>
+        {
+            if (InstancesManager.CurrentInstance != targetInstance ||
+                BetweenAreas)
+                return false;
+            
+            OnUpdate(DService.Instance().Framework);
+            return true;
+        }, "等待切换完毕, 更新副本区信息");
+        
         if (ModuleConfig.MountAfterChange)
         {
             TaskHelper.Enqueue(() =>
             {
-                if (InstancesManager.CurrentInstance != targetInstance ||
-                    BetweenAreas || !IsScreenReady()) return false;
+                if (!UIModule.IsScreenReady())
+                    return false;
 
-                if (!LuminaGetter.TryGetRow<TerritoryType>(DService.ClientState.TerritoryType, out var zoneData) ||
-                    !zoneData.Mount) return false;
+                // 上不了坐骑
+                if (ActionManager.Instance()->GetActionStatus(ActionType.GeneralAction, 9) != 0) 
+                    return true;
                 
                 if (currentMountID != 0)
-                    UseActionManager.UseAction(ActionType.Mount, currentMountID);
+                    UseActionManager.Instance().UseAction(ActionType.Mount, currentMountID);
                 else
-                    UseActionManager.UseAction(ActionType.GeneralAction, 9);
+                    UseActionManager.Instance().UseAction(ActionType.GeneralAction, 9);
 
                 return true;
-            });
+            }, "切换完毕后上坐骑");
         }
     }
 
     public void EnqueueInstanceChange(uint i, uint tryTimes)
     {
         // 等待上一次切换完成
-        TaskHelper.Enqueue(() => IsAddonAndNodesReady(SelectString) || !DService.Condition[ConditionFlag.BetweenAreas], weight:  2);
+        TaskHelper.Enqueue(() => SelectString->IsAddonAndNodesReady() || !DService.Instance().Condition[ConditionFlag.BetweenAreas], "等待上一次切换完毕", weight: 2);
 
         // 检测切换情况
         TaskHelper.Enqueue(() =>
         {
             if (!Throttler.Throttle("FastInstanceZoneChange-DetectInstances")) return false;
-            if (DService.Condition[ConditionFlag.BetweenAreas])
+            if (DService.Instance().Condition[ConditionFlag.BetweenAreas])
             {
-                ExecuteCommandManager.ExecuteCommand(ExecuteCommandFlag.TerritoryTransport);
+                ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.TerritoryTransport);
                 return false;
             }
 
             var publicInstance = UIState.Instance()->PublicInstance;
             if (!publicInstance.IsInstancedArea() || publicInstance.InstanceId == i)
-                TaskHelper.RemoveAllTasks(2);
+                TaskHelper.RemoveQueueTasks(2);
 
             return true;
-        }, weight:  2);
+        }, "检测切换情况", weight: 2);
 
         // 实际切换指令
-        TaskHelper.Enqueue(() => ChangeInstanceZone(i), weight:  2);
+        TaskHelper.Enqueue(() => ChangeInstanceZone(i), "开始切换", weight: 2);
 
         // 发送提示信息
         if (tryTimes > 0)
-            TaskHelper.Enqueue(() => NotificationInfo(GetLoc("FastInstanceZoneChange-Notice-ChangeTimes", tryTimes)), weight:  2);
+            TaskHelper.Enqueue(() => NotificationInfo(GetLoc("FastInstanceZoneChange-Notice-ChangeTimes", tryTimes)), "发送提示信息", weight: 2);
 
         // 延迟下一次检测
-        TaskHelper.DelayNext(1_500, string.Empty, false, 2);
-        TaskHelper.Enqueue(() => EnqueueInstanceChange(i, tryTimes++), weight:  2);
+        TaskHelper.DelayNext(1_500, "等待 1.5 秒后继续", weight: 2);
+        TaskHelper.Enqueue(() => EnqueueInstanceChange(i, tryTimes++), "开始新一轮切换", weight: 2);
     }
 
     internal static void ChangeInstanceZone(uint i)
     {
         if (!UIState.Instance()->PublicInstance.IsInstancedArea() ||
-            !IsAnyAetheryteNearby(out var eventID)) return;
+            !IsAnyAetheryteNearby(out var eventID))
+            return;
 
-        var packetStart = new EventStartPackt(DService.ObjectTable.LocalPlayer.GameObjectID, eventID);
-        var packetFinish = new EventCompletePackt(eventID, 33554432, 7, i + 1);
-
-        GamePacketManager.SendPackt(packetStart);
-        GamePacketManager.SendPackt(packetFinish);
+        new EventStartPackt(LocalPlayerState.EntityID, eventID).Send();
+        new EventCompletePackt(eventID, 33554432, 7, i + 1).Send();
     }
 
     private static bool IsAnyAetheryteNearby(out uint eventID)
@@ -338,7 +331,7 @@ public unsafe class FastInstanceZoneChange : DailyModuleBase
 
             foreach (var obj in eve.Item2.Value->EventObjects)
             {
-                if (obj.Value->NameString == LuminaGetter.GetRow<Aetheryte>(0)!.Value.Singular.ExtractText())
+                if (obj.Value->NameString == LuminaGetter.GetRow<Aetheryte>(0)!.Value.Singular.ToString())
                 {
                     eventID = eve.Item2.Value->Info.EventId;
                     return true;

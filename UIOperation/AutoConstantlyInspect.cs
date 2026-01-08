@@ -16,7 +16,7 @@ public class AutoConstantlyInspect : DailyModuleBase
     };
 
     protected override void Init() => 
-        DService.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "ItemInspectionResult", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "ItemInspectionResult", OnAddon);
 
     protected override void ConfigUI() => ConflictKeyText();
 
@@ -34,10 +34,10 @@ public class AutoConstantlyInspect : DailyModuleBase
         var nextButton = addon->GetComponentButtonById(74);
         if (nextButton == null || !nextButton->IsEnabled) return;
         
-        SendEvent(AgentId.ItemInspection, 3, 0);
+        AgentId.ItemInspection.SendEvent(3, 0);
         addon->Close(true);
     }
 
     protected override void Uninit() => 
-        DService.AddonLifecycle.UnregisterListener(OnAddon);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 }

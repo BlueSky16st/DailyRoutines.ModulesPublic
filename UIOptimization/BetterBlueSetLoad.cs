@@ -29,8 +29,8 @@ public unsafe class BetterBlueSetLoad : DailyModuleBase
     protected override void Init()
     {
         AgentAozNotebookReceiveEventHook ??=
-            DService.Hook.HookFromAddress<AgentReceiveEventDelegate>(
-                GetVFuncByName(AgentModule.Instance()->GetAgentByInternalId(AgentId.AozNotebook)->VirtualTable, "ReceiveEvent"),
+            DService.Instance().Hook.HookFromAddress<AgentReceiveEventDelegate>(
+                AgentModule.Instance()->GetAgentByInternalId(AgentId.AozNotebook)->VirtualTable->GetVFuncByName("ReceiveEvent"),
                 AgentAozNotebookReceiveEventDetour);
         AgentAozNotebookReceiveEventHook.Enable();
 
@@ -42,7 +42,7 @@ public unsafe class BetterBlueSetLoad : DailyModuleBase
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Command")}:");
         
         ImGui.SameLine();
-        ImGui.Text($"/pdr {Command} → {GetLoc("BetterBlueSetLoad-CommandHelp")}");
+        ImGui.TextUnformatted($"/pdr {Command} → {GetLoc("BetterBlueSetLoad-CommandHelp")}");
     }
 
     private static AtkValue* AgentAozNotebookReceiveEventDetour(
@@ -52,7 +52,7 @@ public unsafe class BetterBlueSetLoad : DailyModuleBase
         uint            valueCount,
         ulong           eventKind)
     {
-        if (!IsAddonAndNodesReady(AOZNotebookPresetList) || AOZNotebookPresetList->AtkValues->UInt != 0 || eventKind != 1 || valueCount != 2)
+        if (!AOZNotebookPresetList->IsAddonAndNodesReady() || AOZNotebookPresetList->AtkValues->UInt != 0 || eventKind != 1 || valueCount != 2)
             return InvokeOriginal();
 
         var index = values[1].UInt;
