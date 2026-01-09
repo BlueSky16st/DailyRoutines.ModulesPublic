@@ -104,6 +104,7 @@ public unsafe class ActionMessenger : DailyModuleBase
                 ModuleConfig.ChatTypeConfig = ChatType.Echo;
 
             ImGui.EndCombo();
+            SaveConfig(ModuleConfig);
         }
 
         ImGui.PopStyleColor();
