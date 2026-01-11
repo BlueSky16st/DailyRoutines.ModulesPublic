@@ -43,7 +43,7 @@
     </ItemGroup>
 
     <PropertyGroup>
-        <DailyRoutinesPath>C:\Users\stxin\AppData\Roaming\XIVLauncherCN\installedPlugins\DailyRoutines\1.9.7.4\</DailyRoutinesPath>
+        <DailyRoutinesPath>C:\Users\stxin\AppData\Roaming\XIVLauncherCN\installedPlugins\DailyRoutines\1.9.7.7\</DailyRoutinesPath>
     </PropertyGroup>
     
     <ItemGroup>
@@ -105,6 +105,16 @@
         <Compile Remove="Action\HealerHelper.cs"/>
         <Compile Remove="Action\MacroIntoActionQueue.cs"/>
         <Compile Remove="Action\AutoCancelMountCast.cs" />
+        <Compile Remove="GoldSaucer\**" />
+        <Compile Remove="Recruitment\**" />
+        <Compile Remove="Action\AutoTenChiJin.cs" />
+        <Compile Remove="Action\CustomActionQueueTime.cs" />
+        <Compile Remove="Action\DisableGroundActionAutoFace.cs" />
+        <Compile Remove="Action\InstantPlaceLocationAction.cs" />
+        <Compile Remove="Action\OptimizedLongCastTimeAction.cs" />
+        <Compile Remove="Action\AutoReplaceActionAnimation.cs" />
+        <Compile Remove="Action\AutoRedirectDashActions.cs" />
+        <Compile Remove="Action\AutoActionAlignCamera.cs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -115,5 +125,12 @@
         <EmbeddedResource Remove="UIOperation\**"/>
         <EmbeddedResource Remove="General\**"/>
         <EmbeddedResource Remove="System\**"/>
+        <EmbeddedResource Remove="GoldSaucer\**" />
+        <EmbeddedResource Remove="Recruitment\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Page Remove="GoldSaucer\**" />
+      <Page Remove="Recruitment\**" />
     </ItemGroup>
 </Project>
