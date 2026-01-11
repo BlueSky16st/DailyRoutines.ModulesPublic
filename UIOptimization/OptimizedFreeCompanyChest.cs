@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using DailyRoutines.Abstracts;
@@ -296,10 +296,10 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
     // 处理存取后的右键菜单关闭
     private static void OnAddonContextMenu(AddonEvent type, AddonArgs args)
     {
-        if (!IsNeedToClose || InfosOm.ContextMenuXIV == null) return;
+        if (!IsNeedToClose || ContextMenuAddon == null) return;
 
-        InfosOm.ContextMenuXIV->IsVisible = false;
-        InfosOm.ContextMenuXIV->Close(true);
+        ContextMenuAddon->IsVisible = false;
+        ContextMenuAddon->Close(true);
         IsNeedToClose = false;
     }
     
@@ -321,22 +321,22 @@ public unsafe class OptimizedFreeCompanyChest : DailyModuleBase
 
     private static void ClearNodes()
     {
-        FastMoveNode?.DetachNode();
+        FastMoveNode?.Dispose();
         FastMoveNode = null;
         
-        DefaultPageNode?.DetachNode();
+        DefaultPageNode?.Dispose();
         DefaultPageNode = null;
         
-        ComponentNode?.DetachNode();
+        ComponentNode?.Dispose();
         ComponentNode = null;
         
-        GilIconNode?.DetachNode();
+        GilIconNode?.Dispose();
         GilIconNode = null;
         
-        GilItemsValueCountNode?.DetachNode();
+        GilItemsValueCountNode?.Dispose();
         GilItemsValueCountNode = null;
         
-        GilItemsValueNode?.DetachNode();
+        GilItemsValueNode?.Dispose();
         GilItemsValueNode = null;
     }
     

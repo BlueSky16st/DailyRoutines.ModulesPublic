@@ -1,4 +1,4 @@
-﻿using DailyRoutines.Abstracts;
+using DailyRoutines.Abstracts;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -51,7 +51,7 @@ public unsafe class AdventurerPlateThroughInspect : DailyModuleBase
                 
                 break;
             case AddonEvent.PreFinalize:
-                OpenButton?.DetachNode();
+                OpenButton?.Dispose();
                 OpenButton = null;
                 break;
         }

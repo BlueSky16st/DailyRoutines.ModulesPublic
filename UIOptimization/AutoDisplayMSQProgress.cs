@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using DailyRoutines.Abstracts;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
@@ -23,7 +23,7 @@ public unsafe class AutoDisplayMSQProgress : DailyModuleBase
     protected override void Init()
     {
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw, "ScenarioTree", OnAddon);
-        if (InfosOm.ScenarioTree->IsAddonAndNodesReady())
+        if (ScenarioTreeAddon->IsAddonAndNodesReady())
             OnAddon(AddonEvent.PostSetup, null);
     }
 
@@ -34,7 +34,7 @@ public unsafe class AutoDisplayMSQProgress : DailyModuleBase
     {
         if (!Throttler.Throttle("ScenarioTree", 1_000)) return;
         
-        var addon = InfosOm.ScenarioTree;
+        var addon = ScenarioTreeAddon;
         if (!addon->IsAddonAndNodesReady()) return;
 
         if (!TryGetCurrentExpansionMSQProgress(out var result)) return;

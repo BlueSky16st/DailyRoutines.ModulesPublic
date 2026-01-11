@@ -86,7 +86,7 @@ public unsafe class AutoMateriaTransmutation : DailyModuleBase
         switch (type)
         {
             case AddonEvent.PostDraw:
-                var addon = InfosOm.TradeMultiple;
+                var addon = TradeMultipleAddon;
                 if (addon == null) return;
                 
                 if (OperateButtonNode == null)
@@ -174,7 +174,7 @@ public unsafe class AutoMateriaTransmutation : DailyModuleBase
 
                 break;
             case AddonEvent.PreFinalize:
-                OperateButtonNode?.DetachNode();
+                OperateButtonNode?.Dispose();
                 OperateButtonNode = null;
                 break;
         }

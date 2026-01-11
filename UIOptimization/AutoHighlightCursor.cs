@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Numerics;
 using DailyRoutines.Abstracts;
 using Dalamud.Game.ClientState.Conditions;
@@ -86,7 +86,7 @@ public class AutoHighlightCursor : DailyModuleBase
     private unsafe class CursorImageNode : OverlayNode
     {
         public override OverlayLayer OverlayLayer     => OverlayLayer.Foreground;
-        public override bool         HideWithNativeUI => false;
+        public override bool         HideWithNativeUI => true;
         
         private readonly IconImageNode imageNode;
 

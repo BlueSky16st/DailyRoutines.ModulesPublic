@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DailyRoutines.Abstracts;
@@ -146,10 +146,10 @@ public unsafe class OptimizedFreeShop : DailyModuleBase
                 
                 break;
             case AddonEvent.PreFinalize:
-                IsEnabledNode?.DetachNode();
+                IsEnabledNode?.Dispose();
                 IsEnabledNode = null;
                 
-                BatchClaimContainerNode?.DetachNode();
+                BatchClaimContainerNode?.Dispose();
                 BatchClaimContainerNode = null;
                 
                 ClickYesnoHelper?.Abort();

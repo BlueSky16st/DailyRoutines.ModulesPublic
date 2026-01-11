@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -146,7 +146,7 @@ public class BetterFPSLimitation : DailyModuleBase
                     Entry = null;
                 }
                 
-                Entry         ??= DService.Instance().DtrBar.Get("DailyRoutines-BetterFPSLimitation");
+                Entry         ??= DService.Instance().DTRBar.Get("DailyRoutines-BetterFPSLimitation");
                 Entry.OnClick +=  _ => Addon.Toggle();
                 Entry.Shown   =   true;
                 Entry.Text    =   LuminaWrapper.GetAddonText(4002);

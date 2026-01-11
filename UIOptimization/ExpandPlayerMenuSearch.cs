@@ -60,7 +60,7 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
     {
         if (args.Target is MenuTargetInventory) return false;
         var menuTarget = (MenuTargetDefault)args.Target;
-        var agent = DService.Instance().Gui.FindAgentInterface("ChatLog");
+        var agent = DService.Instance().GameGUI.FindAgentInterface("ChatLog");
         if (agent != nint.Zero && *(uint*)(agent + 0x948 + 8) == 3) return false;
 
         var judgeCriteria0 = menuTarget.TargetCharacter != null;
@@ -460,13 +460,13 @@ public class ExpandPlayerMenuSearch : DailyModuleBase
         public override string Identifier { get; protected set; } = nameof(ExpandPlayerMenuSearch);
 
 
-        private const string Url = "https://fight.sumemo.dev/member/{0}@{1}";
+        private const string URL = "https://sumemo.dev/member/{0}@{1}";
 
         protected override void OnClicked(IMenuItemClickedArgs args)
         {
             if (TargetChara == null)
                 return;
-            Util.OpenLink(string.Format(Url, TargetChara.Name, TargetChara.World));
+            Util.OpenLink(string.Format(URL, TargetChara.Name, TargetChara.World));
         }
     }
 }

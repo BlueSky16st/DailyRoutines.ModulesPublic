@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -77,10 +77,10 @@ public class OptimizedLetter : DailyModuleBase
         switch (type)
         {
             case AddonEvent.PreFinalize:
-                TextInputButton?.DetachNode();
+                TextInputButton?.Dispose();
                 TextInputButton = null;
                 
-                ListNode?.DetachNode();
+                ListNode?.Dispose();
                 ListNode = null;
                 break;
             
@@ -96,7 +96,7 @@ public class OptimizedLetter : DailyModuleBase
                         Position  = new(18, 38),
                         OnInputReceived = name =>
                         {
-                            ListNode?.DetachNode();
+                            ListNode?.Dispose();
                             ListNode = null;
                             
                             List<string> names = [];

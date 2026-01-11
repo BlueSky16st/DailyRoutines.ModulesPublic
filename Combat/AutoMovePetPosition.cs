@@ -4,7 +4,6 @@ using System.Linq;
 using System.Numerics;
 using DailyRoutines.Abstracts;
 using DailyRoutines.Managers;
-using DailyRoutines.Widgets;
 using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using Lumina.Excel.Sheets;
@@ -230,7 +229,7 @@ public class AutoMovePetPosition : DailyModuleBase
                     if ((ImGui.IsKeyDown(ImGuiKey.LeftAlt)  || ImGui.IsKeyDown(ImGuiKey.RightAlt)) &&
                         (ImGui.IsKeyDown(ImGuiKey.LeftCtrl) || ImGui.IsKeyDown(ImGuiKey.RightCtrl)))
                     {
-                        if (DService.Instance().Gui.ScreenToWorld(ImGui.GetMousePos(), out var worldPos))
+                        if (DService.Instance().GameGUI.ScreenToWorld(ImGui.GetMousePos(), out var worldPos))
                         {
                             var currentPickingZone  = CurrentPickingRow?.territoryKey ?? 0;
                             var currentPickingIndex = CurrentPickingRow?.index        ?? -1;

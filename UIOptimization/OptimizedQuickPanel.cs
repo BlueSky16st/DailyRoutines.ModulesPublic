@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using DailyRoutines.Abstracts;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
@@ -84,7 +84,7 @@ public unsafe class OptimizedQuickPanel : DailyModuleBase
         switch (type)
         {
             case AddonEvent.PreFinalize:
-                LockCheckBoxNode?.DetachNode();
+                LockCheckBoxNode?.Dispose();
                 LockCheckBoxNode = null;
                 
                 if (ModuleConfig != null)

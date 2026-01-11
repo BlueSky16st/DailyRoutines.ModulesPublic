@@ -516,13 +516,13 @@ public unsafe class AutoSubmarineCollect : DailyModuleBase
         switch (type)
         {
             case AddonEvent.PreFinalize:
-                ItemListLayout?.DetachNode();
+                ItemListLayout?.Dispose();
                 ItemListLayout = null;
                 
-                AutoCollectNode?.DetachNode();
+                AutoCollectNode?.Dispose();
                 AutoCollectNode = null;
                 
-                ItemRenderers.ForEach(x => x?.DetachNode());
+                ItemRenderers.ForEach(x => x?.Dispose());
                 ItemRenderers.Clear();
                 break;
             case AddonEvent.PostDraw:
@@ -707,7 +707,7 @@ public unsafe class AutoSubmarineCollect : DailyModuleBase
                 textBuilder.AddIcon(BitmapFontIcon.ExclamationRectangle)
                            .AddText(" ");
             textBuilder.AddText($"{itemCount}");
-            
+
             CountNode = new()
             {
                 IsVisible        = true,
@@ -715,6 +715,7 @@ public unsafe class AutoSubmarineCollect : DailyModuleBase
                 FontType         = FontType.MiedingerMed,
                 AlignmentType    = AlignmentType.TopRight,
                 Position         = new(width - 20, 4),
+                TextColor        = ColorHelper.GetColor(50),
                 TextOutlineColor = ColorHelper.GetColor((uint)(itemCount > 20 ? 28 : 17)),
                 FontSize         = 16,
                 SeString         = textBuilder.Build().Encode()
@@ -737,13 +738,13 @@ public unsafe class AutoSubmarineCollect : DailyModuleBase
 
         protected override void Dispose(bool disposing, bool isNativeDestructor)
         {
-            IconNode?.DetachNode();
+            IconNode?.Dispose();
             IconNode = null;
             
-            NameNode?.DetachNode();
+            NameNode?.Dispose();
             NameNode = null;
             
-            CountNode?.DetachNode();
+            CountNode?.Dispose();
             CountNode = null;
             
             base.Dispose(disposing, isNativeDestructor);

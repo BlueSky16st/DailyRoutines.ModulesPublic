@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using DailyRoutines.Abstracts;
-using DailyRoutines.Widgets;
+using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Hooking;
 using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -325,11 +325,19 @@ public class AutoReplaceLocationAction : DailyModuleBase
         }
     }
 
-    private static void OnPreExecuteCommandComplexLocation(
-        ref bool isPrevented, ref ExecuteCommandComplexFlag command, ref Vector3 location, ref uint param1,
-        ref uint param2,      ref uint                      param3,  ref uint    param4)
+    private static void OnPreExecuteCommandComplexLocation
+    (
+        ref bool                      isPrevented,
+        ref ExecuteCommandComplexFlag command,
+        ref Vector3                   location,
+        ref uint                      param1,
+        ref uint                      param2,
+        ref uint                      param3,
+        ref uint                      param4
+    )
     {
         if (command != ExecuteCommandComplexFlag.PetAction || param1 != 3) return;
+
         if (!ModuleConfig.EnabledPetActions.TryGetValue(3, out var isEnabled) || (!isEnabled && !IsNeedToReplace))
         {
             IsNeedToReplace = false;
@@ -343,11 +351,12 @@ public class AutoReplaceLocationAction : DailyModuleBase
             markers = [];
 
         var modifiedLocation = location;
-        if (HandleCustomLocation(ref modifiedLocation) ||
+
+        if (HandleCustomLocation(ref modifiedLocation)       ||
             HandleMapLocation(markers, ref modifiedLocation) ||
             HandlePresetCenterLocation(ref modifiedLocation))
         {
-            location = modifiedLocation;
+            location    = modifiedLocation;
             isPrevented = true;
 
             ExecuteCommandManager.Instance().ExecuteCommandComplexLocation(ExecuteCommandComplexFlag.PetAction, modifiedLocation, 3);
@@ -420,12 +429,27 @@ public class AutoReplaceLocationAction : DailyModuleBase
 
     private static void NotifyLocationRedirect(Vector3 location)
     {
-        var message = GetLoc("AutoReplaceLocationAction-RedirectMessage", $"{location:F1}");
-
         if (ModuleConfig.SendChat)
-            Chat(message);
+        {
+            var mapPos = WorldToMap(location.ToVector2(), GameState.MapData);
+            Chat
+            (
+                GetSLoc
+                (
+                    "AutoReplaceLocationAction-RedirectMessage",
+                    SeString.CreateMapLink(GameState.TerritoryType, GameState.Map, mapPos.X, mapPos.Y)
+                )
+            );
+        }
         if (ModuleConfig.SendNotification)
-            NotificationSuccess(message);
+            NotificationSuccess
+            (
+                GetLoc
+                (
+                    "AutoReplaceLocationAction-RedirectMessage",
+                    $"[{location.X:F1}, {location.Y:F1}, {location.Z:F1}]"
+                )
+            );
     }
 
     protected override void Uninit()

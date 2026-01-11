@@ -202,10 +202,10 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 ApplyDisplayModification(TaskHelper);
                 break;
             case AddonEvent.PreFinalize:
-                SearchInputNode?.DetachNode();
+                SearchInputNode?.Dispose();
                 SearchInputNode = null;
 
-                SearchSettingButtonNode?.DetachNode();
+                SearchSettingButtonNode?.Dispose();
                 SearchSettingButtonNode = null;
 
                 Tokens.ForEach(x => OnlineDataManager.GetRequest<PlayerUsedNamesRequest>().Unsubscribe(x));
@@ -516,6 +516,7 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 Size          = new(440, 28),
                 MaxCharacters = 64,
                 ShowLimitText = true,
+                AutoSelectAll = false,
                 String        = existedNickname
             };
             NicknameInputNode.AttachNode(this);
@@ -540,6 +541,7 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 MaxCharacters = 1024,
                 MaxLines      = 5,
                 ShowLimitText = true,
+                AutoSelectAll = false,
                 String        = existedRemark
             };
 

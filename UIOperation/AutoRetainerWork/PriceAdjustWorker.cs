@@ -806,8 +806,9 @@ public unsafe partial class AutoRetainerWork
             var isTooltip     = false;
             var tooltipItemID = 0U;
 
-            foreach (var item in itemSource)
+            for (var index = 0; index < itemSource.Length; index++)
             {
+                var item      = itemSource[index];
                 var itemPrice = GetRetainerMarketPrice(item.Slot);
                 if (itemPrice == 0) continue;
 
@@ -820,7 +821,7 @@ public unsafe partial class AutoRetainerWork
                 ImGui.TableNextRow();
 
                 ImGui.TableNextColumn();
-                ImGui.TextUnformatted($"{item.Slot + 1}");
+                ImGui.TextUnformatted($"{index + 1}");
 
                 DrawItemColumn(item.Slot, item.Inventory.ItemId, itemName, itemIcon, ref isTooltip, ref tooltipItemID);
 
@@ -1620,7 +1621,7 @@ public unsafe partial class AutoRetainerWork
                             var foundItem = foundItems.FirstOrDefault();
                             return foundItem.OpenContext();
                         }, "找到物品并打开其右键菜单", weight: 3);
-                        TaskHelper.Enqueue(() => ContextMenuXIV->IsAddonAndNodesReady(),             "等待右键菜单出现",  weight: 3);
+                        TaskHelper.Enqueue(() => ContextMenuAddon->IsAddonAndNodesReady(),             "等待右键菜单出现",  weight: 3);
                         TaskHelper.Enqueue(() => ClickContextMenu(LuminaWrapper.GetAddonText(5480)), "出售物品至系统商店", weight: 3);
                         break;
                 }
