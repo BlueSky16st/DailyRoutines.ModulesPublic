@@ -59,7 +59,7 @@ public unsafe class ActionMessenger : DailyModuleBase
 
         UseActionManager.Instance().Unreg(PostCharacterStartCastV2);
         UseActionManager.Instance().Unreg(PostUseAction);
-        
+
         base.Uninit();
     }
 
@@ -113,7 +113,10 @@ public unsafe class ActionMessenger : DailyModuleBase
         ImGui.Spacing();
 
         // 创建两列布局
-        ImGui.Columns(2, "SkillConfig", true);
+        ImGui.Columns(2, "SkillConfig", false);
+
+        // 设置列宽
+        ImGui.SetColumnWidth(0, 200f);
 
         // 左列 - 技能列表
         ConfigureLeftColumn();
@@ -333,6 +336,9 @@ public unsafe class ActionMessenger : DailyModuleBase
             ImGui.TextColored(new Vector4(0.7f, 0.8f, 1.0f, 1.0f), GetStr("消息列表(会随机挑选一条消息发送)") + ":");
             ImGui.Spacing();
 
+            // 计算输入框宽度
+            var inputWidth = ImGui.GetContentRegionAvail().X - 80f - ImGui.GetStyle().ItemSpacing.X;
+
             // 显示现有消息
             for (var i = 0; i < configData.Messages.Count; i++)
             {
@@ -340,7 +346,8 @@ public unsafe class ActionMessenger : DailyModuleBase
                 var message = configData.Messages[i];
                 ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.15f, 0.18f, 0.22f, 1.0f));
                 ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.25f, 0.28f, 0.35f, 0.7f));
-                if (ImGui.InputTextMultiline($"##MessageInput{i}", ref message, 1024, new Vector2(0, 50)))
+
+                if (ImGui.InputTextMultiline($"##MessageInput{i}", ref message, 1024, new Vector2(inputWidth, 50)))
                 {
                     configData.Messages[i] = message;
                     SaveConfig(ModuleConfig);
@@ -367,7 +374,8 @@ public unsafe class ActionMessenger : DailyModuleBase
             ImGui.TextColored(new Vector4(0.8f, 0.95f, 0.9f, 1.0f), GetStr("添加新消息") + ":");
             ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.15f, 0.18f, 0.22f, 1.0f));
             ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.25f, 0.28f, 0.35f, 0.7f));
-            if (ImGui.InputTextMultiline("##NewMessage", ref newMessageInput, 1024, new Vector2(0, 50)))
+
+            if (ImGui.InputTextMultiline("##NewMessage", ref newMessageInput, 1024, new Vector2(inputWidth, 50)))
             {
                 // 输入时不需要特殊处理
             }
@@ -412,12 +420,12 @@ public unsafe class ActionMessenger : DailyModuleBase
         float a6) => ProcessAction(true, type, actionId, player);
 
     public static void PostCharacterStartCastV2(
-        ref bool isPrevented, 
-        ref IBattleChara player, 
-        ref ActionType type, 
-        ref uint actionID, 
-        ref nint a4, 
-        ref float rotation, 
+        ref bool isPrevented,
+        ref IBattleChara player,
+        ref ActionType type,
+        ref uint actionID,
+        ref nint a4,
+        ref float rotation,
         ref float a6) => ProcessAction(true, type, actionID, player);
 
     private static void PreCharacterCompleteCast(
