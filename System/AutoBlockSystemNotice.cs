@@ -1,31 +1,30 @@
-using DailyRoutines.Abstracts;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 
-namespace DailyRoutines.Modules;
+namespace DailyRoutines.ModulesPublic;
 
-public class AutoBlockSystemNotice : DailyModuleBase
+public class AutoBlockSystemNotice : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title = GetLoc("AutoBlockSystemNoticeTitle"),
-        Description = GetLoc("AutoBlockSystemNoticeDescription"),
-        Category = ModuleCategories.System,
+        Title       = Lang.Get("AutoBlockSystemNoticeTitle"),
+        Description = Lang.Get("AutoBlockSystemNoticeDescription"),
+        Category    = ModuleCategory.System
     };
 
-    protected override void Init()
-    {
-        DService.Instance().Chat.CheckMessageHandled += OnChat;
-    }
+    protected override void Init() =>
+        DService.Instance().Chat.ChatMessage += OnChat;
+    
+    protected override void Uninit() =>
+        DService.Instance().Chat.ChatMessage -= OnChat;
 
-    private static void OnChat(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool ishandled)
+    private static void OnChat(IHandleableChatMessage message)
     {
-        if (type is not XivChatType.Notice) return;
-        ishandled = true;
-    }
-
-    protected override void Uninit()
-    {
-        DService.Instance().Chat.CheckMessageHandled -= OnChat;
+        if (message.LogKind != XivChatType.Notice) return;
+        message.PreventOriginal();
     }
 }

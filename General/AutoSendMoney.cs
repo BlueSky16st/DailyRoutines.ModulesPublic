@@ -1,247 +1,239 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+
+using System.Collections.Frozen;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using System.Timers;
-using DailyRoutines.Abstracts;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Hooking;
-using Dalamud.Interface.Utility;
+using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
-using Lumina.Excel.Sheets;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using OmenTools.Dalamud;
+using OmenTools.Info.Game.Data;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.Interop.Game.Models;
+using OmenTools.OmenService;
+using Control = FFXIVClientStructs.FFXIV.Client.Game.Control.Control;
 using ObjectKind = Dalamud.Game.ClientState.Objects.Enums.ObjectKind;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class AutoSendMoney : DailyModuleBase
+public unsafe class AutoSendMoney : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoSendMoneyTitle"),
-        Description = GetLoc("AutoSendMoneyDescription"),
-        Category    = ModuleCategories.General,
+        Title       = Lang.Get("AutoSendMoneyTitle"),
+        Description = Lang.Get("AutoSendMoneyDescription"),
+        Category    = ModuleCategory.General,
         Author      = ["status102"]
     };
 
     public override ModulePermission Permission { get; } = new() { NeedAuth = true };
-
-    private const uint MaximumGilPerTimes = 1_000_000;
     
-    private static int RandomDelay => 
-        Random.Shared.Next(ModuleConfig.Delay1, ModuleConfig.Delay2);
+    private bool IsRunning => runtime != null;
     
-    private static Timer?  SelectPlayerTimer;
-    private static Config? ModuleConfig;
+    private Config config = null!;
 
-    private static          int[]                  MoneyButton    = [];
-    private static readonly List<Member>           MemberList     = [];
-    private static readonly Dictionary<uint, long> EditPlan       = [];
-    private static          Dictionary<uint, long> TradePlan      = [];
-    private static readonly bool[]                 PreCheckStatus = new bool[2];
-    private static          float                  NameLength = -1;
+    private int[] moneyButtons = [];
 
-    private static bool IsRunning;         // 是否正在运行
-    private static bool IsTrading;         // 是否正在交易
-    private static uint LastTradeEntityID; // 上次/当前交易对象
+    private readonly List<Member>           members  = [];
+    private readonly Dictionary<uint, long> editPlan = [];
 
-    private static double PlanAll;
-    private static long   CurrentChange;
-    private static uint   CurrentMoney; // 交易框中自己的钱
+    private float  nameLength = -1;
+    private double planAll;
+    private long   currentChange;
 
+    private SendMoneyRuntime? runtime;
+    
     protected override void Init()
     {
-        ModuleConfig =   LoadConfig<Config>() ?? new();
-        TaskHelper   ??= new() { TimeoutMS = 5_000 };
+        config = Config.Load(this) ?? new();
 
-        MoneyButton = [-ModuleConfig.Step2, -ModuleConfig.Step1, ModuleConfig.Step1, ModuleConfig.Step2];
-
-        TradeRequestHook = TradeRequestSig.GetHook<TradeRequestDelegate>(TradeRequestDetour);
-        TradeRequestHook.Enable();
-        
-        TradeStatusUpdateHook = TradeStatusUpdateSig.GetHook<TradeStatusUpdateDelegate>(TradeStatusDetour);
-        TradeStatusUpdateHook.Enable();
-
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Trade", OnTrade);
-
-        SelectPlayerTimer         ??= new(1_000) { AutoReset = true };
-        SelectPlayerTimer.Elapsed +=  AutoRequestTradeTick;
+        ValidateConfigChanges();
+        TaskHelper ??= new() { TimeoutMS = 5_000 };
     }
+
+    protected override void Uninit() =>
+        Stop();
+    
+    #region UI
 
     protected override void ConfigUI()
     {
-        if (NameLength < 0)
-            NameLength = ImGui.CalcTextSize(GetLoc("All")).X;
-        
-        DrawSetting();
+        if (nameLength < 0)
+            nameLength = ImGui.CalcTextSize(Lang.Get("All")).X;
 
-        using (ImRaii.PushId("All"))     
-            DrawOverallSetting(); 
-        
-        foreach (var p in MemberList)
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{Lang.Get("Settings")}");
+
+        using (ImRaii.PushIndent())
+        using (ImRaii.ItemWidth(100f * GlobalUIScale))
         {
-            using (ImRaii.PushId(p.EntityID.ToString()))     
-                DrawPersonalSetting(p);
+            ImGui.InputInt($"{Lang.Get("AutoSendMoney-Step", 1)}##Step1Input", ref config.Step1, flags: ImGuiInputTextFlags.CharsDecimal);
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                ValidateConfigChanges();
+                config.Save(this);
+            }
+
+            ImGui.InputInt($"{Lang.Get("AutoSendMoney-Step", 2)}##Step2Input", ref config.Step2, flags: ImGuiInputTextFlags.CharsDecimal);
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                ValidateConfigChanges();
+                config.Save(this);
+            }
+
+            ImGui.InputInt($"{Lang.Get("AutoSendMoney-DelayLowerLimit")}##DelayLowerLimitInput", ref config.Delay1, flags: ImGuiInputTextFlags.CharsDecimal);
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                ValidateConfigChanges();
+                config.Save(this);
+            }
+
+            ImGui.InputInt($"{Lang.Get("AutoSendMoney-DelayUpperLimit")}##DelayUpperLimitInput", ref config.Delay2, flags: ImGuiInputTextFlags.CharsDecimal);
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                ValidateConfigChanges();
+                config.Save(this);
+            }
+        }
+
+        ImGui.NewLine();
+
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{Lang.Get("Control")}");
+
+        using (ImRaii.PushIndent())
+        {
+            using (ImRaii.Disabled(IsRunning))
+            {
+                if (ImGui.Button($"{FontAwesomeIcon.FlagCheckered.ToIconString()} {Lang.Get("Start")}"))
+                    Start();
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button($"{FontAwesomeIcon.Stop.ToIconString()} {Lang.Get("Stop")}"))
+                Stop();
+        }
+
+        ImGui.NewLine();
+
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{Lang.Get("AutoSendMoney-ListToTrade")}");
+
+        using (ImRaii.PushIndent())
+        {
+            if (ImGui.Button(Lang.Get("AutoSendMoney-AddPartyList")))
+                AddPartyMembers();
+
+            ImGui.SameLine();
+            if (ImGui.Button(Lang.Get("AutoSendMoney-AddTarget")))
+                AddCurrentTarget();
+
+            using (ImRaii.PushId("All"))
+                DrawGlobalPlan();
+
+            foreach (var p in members)
+            {
+                using (ImRaii.PushId(p.EntityID.ToString()))
+                    DrawMemberPlan(p);
+            }
         }
     }
 
-    protected override void Uninit()
-    {
-        SelectPlayerTimer?.Dispose();
-        SelectPlayerTimer = null;
-
-        DService.Instance().AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "Trade", OnTrade);
-    }
-
-    #region UI
-
-    private void DrawSetting()
-    {
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("Settings")}:");
-
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-Step", 1)}:");
-
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(50f * GlobalFontScale);
-        ImGui.InputInt("###Step1Input", ref ModuleConfig.Step1, flags: ImGuiInputTextFlags.CharsDecimal);
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            MoneyButton = [-ModuleConfig.Step2, -ModuleConfig.Step1, ModuleConfig.Step1, ModuleConfig.Step2];
-            SaveConfig(ModuleConfig);
-        }
-
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-Step", 2)}:");
-
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt("###Step2Input", ref ModuleConfig.Step2, flags: ImGuiInputTextFlags.CharsDecimal);
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            MoneyButton = [-ModuleConfig.Step2, -ModuleConfig.Step1, ModuleConfig.Step1, ModuleConfig.Step2];
-            SaveConfig(ModuleConfig);
-        }
-
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-DelayLowerLimit")}:");
-
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt("###DelayUpperLimitInput", ref ModuleConfig.Delay1, flags: ImGuiInputTextFlags.CharsDecimal);
-        if (ImGui.IsItemDeactivatedAfterEdit())
-            SaveConfig(ModuleConfig);
-
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"{GetLoc("AutoSendMoney-DelayUpperLimit")}:");
-
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(50 * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt("###DelayLowerLimitInput", ref ModuleConfig.Delay2, flags: ImGuiInputTextFlags.CharsDecimal);
-        if (ImGui.IsItemDeactivatedAfterEdit())
-            SaveConfig(ModuleConfig);
-
-        ImGui.Spacing();
-
-        using (ImRaii.Disabled(IsRunning))
-        {
-            if (ImGui.Button(GetLoc("Start")))
-                Start();
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button(GetLoc("Stop")))
-            Stop();
-
-        ImGui.SameLine();
-        ImGui.TextDisabled("|");
-
-        ImGui.SameLine();
-        if (ImGui.Button(GetLoc("AutoSendMoney-UpdatePartyList")))
-            UpdateTeamList();
-
-        ImGui.SameLine();
-        if (ImGui.Button(GetLoc("AutoSendMoney-AddTarget")))
-            AddTargetPlayer();
-    }
-
-    private static void DrawOverallSetting()
+    private void DrawGlobalPlan()
     {
         using var group   = ImRaii.Group();
-        var       hasPlan = EditPlan.Count > 0;
+        var       hasPlan = editPlan.Count > 0;
+
         if (ImGui.Checkbox("##AllHasPlan", ref hasPlan))
         {
             if (hasPlan)
             {
-                foreach (var p in MemberList.Where(p => !EditPlan.ContainsKey(p.EntityID)))
-                    EditPlan.Add(p.EntityID, (int)(PlanAll * 10000));
+                foreach (var p in members)
+                {
+                    if (editPlan.ContainsKey(p.EntityID)) continue;
+                    editPlan.Add(p.EntityID, (long)(planAll * 10000));
+                }
             }
             else
-                EditPlan.Clear();
+                editPlan.Clear();
         }
 
         ImGui.SameLine();
-        ImGui.TextUnformatted(GetLoc("All"));
+        ImGui.TextUnformatted(Lang.Get("All"));
 
         using var disabled = ImRaii.Disabled(IsRunning);
 
-        ImGui.SameLine(NameLength + 60);
+        ImGui.SameLine(nameLength + 60);
 
-        ImGui.SetNextItemWidth(80f * GlobalFontScale);
-        ImGui.InputDouble($"{GetLoc("Wan")}##AllMoney", ref PlanAll, 0, 0, "%.1lf", ImGuiInputTextFlags.CharsDecimal);
+        ImGui.SetNextItemWidth(80f * GlobalUIScale);
+        ImGui.InputDouble($"{Lang.Get("Wan")}##AllMoney", ref planAll, 0, 0, "%.1lf", ImGuiInputTextFlags.CharsDecimal);
+
         if (ImGui.IsItemDeactivatedAfterEdit())
-            EditPlan.Keys.ToList().ForEach(key => EditPlan[key] = (long)(PlanAll * 10000));
-
-        CurrentChange = 0;
-        foreach (var num in MoneyButton)
         {
-            ImGui.SameLine();
-            ImGui.SetNextItemWidth(15f * GlobalFontScale);
-            var display = $"{(num < 0 ? string.Empty : '+')}{num}";
-            if (ImGui.Button($"{display}##All"))
-                CurrentChange = num * 1_0000;
+            var keys = editPlan.Keys.ToArray();
+            foreach (var key in keys)
+                editPlan[key] = (long)(planAll * 10000);
         }
 
-        if (CurrentChange != 0)
+        currentChange = 0;
+
+        foreach (var num in moneyButtons)
         {
-            PlanAll += CurrentChange / 10000;
-            MemberList.ForEach(p =>
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(15f * GlobalUIScale);
+            var display = $"{(num < 0 ? string.Empty : '+')}{num}";
+            if (ImGui.Button($"{display}##All"))
+                currentChange = num * 1_0000;
+        }
+
+        if (currentChange != 0)
+        {
+            planAll += currentChange / 10000.0;
+
+            foreach (var p in members)
             {
-                if (!EditPlan.TryAdd(p.EntityID, CurrentChange))
-                    EditPlan[p.EntityID] += CurrentChange;
-            });
+                if (!editPlan.TryAdd(p.EntityID, currentChange))
+                    editPlan[p.EntityID] += currentChange;
+            }
         }
 
         ImGui.SameLine();
-        if (ImGui.Button($"{GetLoc("Reset")}###ResetAll"))
+
+        if (ImGui.Button($"{Lang.Get("Reset")}###ResetAll"))
         {
-            PlanAll = 0;
-            foreach (var key in EditPlan.Keys)
-                EditPlan[key] = 0;
+            planAll = 0;
+
+            var keys = editPlan.Keys.ToArray();
+            foreach (var key in keys)
+                editPlan[key] = 0;
         }
     }
 
-    private static void DrawPersonalSetting(Member p)
+    private void DrawMemberPlan(Member p)
     {
         using var group   = ImRaii.Group();
-        var       hasPlan = EditPlan.ContainsKey(p.EntityID);
+        var       hasPlan = editPlan.ContainsKey(p.EntityID);
 
         using (ImRaii.Disabled(IsRunning))
         {
             if (ImGui.Checkbox($"##{p.FullName}-CheckBox", ref hasPlan))
             {
                 if (hasPlan)
-                    EditPlan.Add(p.EntityID, (int)(PlanAll * 10000));
+                    editPlan.Add(p.EntityID, (long)(planAll * 10000));
                 else
-                    EditPlan.Remove(p.EntityID);
+                    editPlan.Remove(p.EntityID);
             }
         }
 
@@ -254,426 +246,548 @@ public unsafe class AutoSendMoney : DailyModuleBase
         ImGui.SameLine();
         ImGui.TextUnformatted(p.FullName);
 
-        ImGui.SameLine(NameLength + 60);
+        ImGui.SameLine(nameLength + 60);
         if (!hasPlan)
             return;
 
         if (IsRunning)
-            ImGui.TextUnformatted(GetLoc("AutoSendMoney-Count", TradePlan.GetValueOrDefault(p.EntityID, 0)));
+            ImGui.TextUnformatted(Lang.Get("AutoSendMoney-Count", runtime?.GetRemaining(p.EntityID) ?? 0));
         else
         {
-            ImGui.SetNextItemWidth(80f * GlobalFontScale);
-            var value = EditPlan.TryGetValue(p.EntityID, out var valueToken) ? valueToken / 10000.0 : 0;
-            ImGui.InputDouble($"{GetLoc("Wan")}##{p.EntityID}-Money", ref value, 0, 0, "%.1lf", ImGuiInputTextFlags.CharsDecimal);
+            ImGui.SetNextItemWidth(80f * GlobalUIScale);
+            var value = editPlan.TryGetValue(p.EntityID, out var valueToken) ? valueToken / 10000.0 : 0;
+            ImGui.InputDouble($"{Lang.Get("Wan")}##{p.EntityID}-Money", ref value, 0, 0, "%.1lf", ImGuiInputTextFlags.CharsDecimal);
             if (ImGui.IsItemDeactivatedAfterEdit())
-                EditPlan[p.EntityID] = (int)(value * 10000);
+                editPlan[p.EntityID] = (long)(value * 10000);
 
-            CurrentChange = 0;
-            MoneyButton.ForEach(num =>
+            currentChange = 0;
+
+            foreach (var num in moneyButtons)
             {
                 ImGui.SameLine();
-                ImGui.SetNextItemWidth(15f * GlobalFontScale);
+                ImGui.SetNextItemWidth(15f * GlobalUIScale);
                 var display = $"{(num < 0 ? string.Empty : '+')}{num}";
                 if (ImGui.Button($"{display}##Single_{p.EntityID}"))
-                    CurrentChange = num * 1_0000;
-            });
+                    currentChange = num * 1_0000;
+            }
 
-            if (CurrentChange != 0)
-                EditPlan[p.EntityID] = (int)(value * 10000) + CurrentChange;
+            if (currentChange != 0)
+                editPlan[p.EntityID] = (long)(value * 10000) + currentChange;
 
             ImGui.SameLine();
-            if (ImGui.Button($"{GetLoc("Reset")}###ResetSingle-{p.EntityID}"))
-                EditPlan[p.EntityID] = 0;
+            if (ImGui.Button($"{Lang.Get("Reset")}###ResetSingle-{p.EntityID}"))
+                editPlan[p.EntityID] = 0;
         }
     }
 
-    private void Start()
+    public void AddPartyMembers()
     {
-        IsRunning = true;
-        TradePlan = [.. EditPlan.Where(i => i.Value > 0)];
-        SelectPlayerTimer.Start();
-        AutoRequestTradeTick(null, null);
-    }
-
-    private void Stop()
-    {
-        IsRunning = false;
-        SelectPlayerTimer.Stop();
-        TaskHelper?.Abort();
-        TradePlan.Clear();
-        LastTradeEntityID = 0;
-    }
-
-    public static void UpdateTeamList()
-    {
-        MemberList.Clear();
+        members.Clear();
         var cwProxy = InfoProxyCrossRealm.Instance();
+
         if (cwProxy->IsCrossRealm)
         {
             var myGroup = InfoProxyCrossRealm.GetMemberByEntityId((uint)Control.GetLocalPlayer()->GetGameObjectId())->GroupIndex;
-            AddMembersFromCRGroup(cwProxy->CrossRealmGroups[myGroup], myGroup);
+            AddCrossRealmGroupMembers(cwProxy->CrossRealmGroups[myGroup], myGroup);
+
             for (var i = 0; i < cwProxy->CrossRealmGroups.Length; i++)
             {
                 if (i == myGroup)
                     continue;
 
-                AddMembersFromCRGroup(cwProxy->CrossRealmGroups[i], i);
+                AddCrossRealmGroupMembers(cwProxy->CrossRealmGroups[i], i);
             }
         }
         else
         {
             var pAgentHUD = AgentHUD.Instance();
+
             for (var i = 0; i < pAgentHUD->PartyMemberCount; ++i)
             {
                 var charData        = pAgentHUD->PartyMembers[i];
                 var partyMemberName = SeString.Parse(charData.Name.Value).TextValue;
 
-                AddTeamMember(charData.EntityId, partyMemberName, charData.Object->HomeWorld);
+                AddMember(charData.EntityId, partyMemberName, charData.Object->HomeWorld);
             }
         }
 
-        // 从交易计划中移除不在小队中的玩家
-        EditPlan.Where(p => MemberList.All(t => t.EntityID != p.Key)).ForEach(p => EditPlan.Remove(p.Key));
-        foreach (var item in MemberList)
-            EditPlan.TryAdd(item.EntityID, 0);
+        var removedKeys = editPlan.Keys.Where(k => members.All(m => m.EntityID != k)).ToArray();
+        foreach (var key in removedKeys)
+            editPlan.Remove(key);
 
-        NameLength = MemberList.Select(p => ImGui.CalcTextSize(p.FullName).X)
-                               .Append(ImGui.CalcTextSize(GetLoc("All")).X).Max();
+        foreach (var item in members)
+            editPlan.TryAdd(item.EntityID, 0);
+
+        nameLength = members.Select(p => ImGui.CalcTextSize(p.FullName).X)
+                            .Append(ImGui.CalcTextSize(Lang.Get("All")).X)
+                            .Max();
     }
 
-    private static void AddMembersFromCRGroup(CrossRealmGroup crossRealmGroup, int groupIndex)
+    private void AddCrossRealmGroupMembers(CrossRealmGroup crossRealmGroup, int groupIndex)
     {
         for (var i = 0; i < crossRealmGroup.GroupMemberCount; i++)
         {
             var groupMember = crossRealmGroup.GroupMembers[i];
-            AddTeamMember(groupMember.EntityId, SeString.Parse(groupMember.Name).TextValue, (ushort)groupMember.HomeWorld, groupIndex);
+            AddMember(groupMember.EntityId, SeString.Parse(groupMember.Name).TextValue, (ushort)groupMember.HomeWorld, groupIndex);
         }
     }
 
-    private static void AddTeamMember(uint entityID, string fullName, ushort worldID, int groupIndex = -1)
+    private void AddMember(uint entityID, string fullName, ushort worldID, int groupIndex = -1)
     {
         if (string.IsNullOrWhiteSpace(fullName))
             return;
-        if (!PresetSheet.Worlds.TryGetValue(worldID, out var world))
+        if (!Sheets.Worlds.TryGetValue(worldID, out var world))
             return;
 
-        /*
-        var splitName = fullName.Split(' ');
-        if (splitName.Length != 2)
-        {
-            return;
-        }*/
-
-        MemberList.Add(new() { EntityID = entityID, FirstName = fullName, World = world.Name.ToString(), GroupIndex = groupIndex });
+        members.Add(new() { EntityID = entityID, FirstName = fullName, World = world.Name.ToString(), GroupIndex = groupIndex });
     }
 
-    private static void AddTargetPlayer()
+    private void AddCurrentTarget()
     {
         var target = TargetSystem.Instance()->GetTargetObject();
+
         if (target is not null &&
-            DService.Instance().ObjectTable.SearchByEntityID(target->EntityId) is ICharacter { ObjectKind: ObjectKind.Player } player)
+            DService.Instance().ObjectTable.SearchByEntityID(target->EntityId) is ICharacter { ObjectKind: ObjectKind.Pc } player)
         {
-            if (MemberList.Any(p => p.EntityID == player.EntityID))
+            if (members.Any(p => p.EntityID == player.EntityID))
                 return;
 
-            MemberList.Add(new(player));
-            EditPlan.TryAdd(player.EntityID, 0);
-            NameLength = MemberList.Select(p => ImGui.CalcTextSize(p.FullName).X)
-                                   .Append(ImGui.CalcTextSize(GetLoc("All")).X).Max();
+            members.Add(new(player));
+            editPlan.TryAdd(player.EntityID, 0);
+            nameLength = members.Select(p => ImGui.CalcTextSize(p.FullName).X)
+                                .Append(ImGui.CalcTextSize(Lang.Get("All")).X)
+                                .Max();
         }
     }
 
     #endregion
 
-    #region Trade
+    #region 交易流程
 
-    private static void OnTradeBegin(uint entityID)
+    private void Start()
     {
-        CurrentMoney      = 0;
-        IsTrading         = true;
-        LastTradeEntityID = entityID;
+        if (runtime != null) return;
+        ValidateConfigChanges();
+        runtime = new SendMoneyRuntime(this);
     }
 
-    /// <summary>
-    ///     显示交易窗口后设置金额
-    /// </summary>
-    private void OnTrade(AddonEvent type, AddonArgs args)
+    private void Stop()
     {
-        if (!IsRunning)
-            return;
-
-        SelectPlayerTimer.Stop();
-        TaskHelper?.Abort();
-
-        if (!TradePlan.TryGetValue(LastTradeEntityID, out var value))
-        {
-            TaskHelper?.DelayNext(RandomDelay);
-            TaskHelper?.Enqueue(AddonTradeCancel);
-        }
-        else
-        {
-            TaskHelper?.DelayNext(RandomDelay);
-            TaskHelper?.Enqueue(() => SetGil(value >= MaximumGilPerTimes ? MaximumGilPerTimes : (uint)value));
-            TaskHelper?.DelayNext(RandomDelay);
-            TaskHelper?.Enqueue(ConfirmPreCheck);
-        }
-    }
-
-    public void OnTradePreCheckChanged(uint objectID, bool confirm)
-    {
-        if (!IsRunning)
-            return;
-
-        if (objectID == LocalPlayerState.EntityID)
-            PreCheckStatus[0] = confirm;
-        else if (objectID == LastTradeEntityID)
-            PreCheckStatus[1] = confirm;
-
-        if (!TradePlan.TryGetValue(LastTradeEntityID, out var value))
-        {
-            TaskHelper?.DelayNext(RandomDelay);
-            TaskHelper?.Enqueue(AddonTradeCancel);
-            return;
-        }
-
-        if (CurrentMoney <= value && !PreCheckStatus[0] && PreCheckStatus[1])
-        {
-            TaskHelper?.DelayNext(RandomDelay);
-            TaskHelper?.Enqueue(ConfirmPreCheck);
-        }
-    }
-
-    public void OnTradeFinalChecked()
-    {
-        if (!IsRunning)
-            return;
-
-        if (TradePlan.TryGetValue(LastTradeEntityID, out var value))
-        {
-            if (CurrentMoney <= value)
-            {
-                TaskHelper?.DelayNext(RandomDelay);
-                TaskHelper?.Enqueue(() => AddonTradeFinalCheck());
-            }
-        }
-    }
-
-    public void OnTradeCancelled()
-    {
-        IsTrading = false;
-        if (!IsRunning)
-            return;
-
-        TaskHelper?.Abort();
-        SelectPlayerTimer.Start();
-    }
-
-    public void OnTradeFinished()
-    {
-        IsTrading = false;
-        if (!IsRunning)
-            return;
-
-        if (!TradePlan.ContainsKey(LastTradeEntityID))
-            Warning(GetLoc("AutoSendMoney-NoPlan"));
-        else
-        {
-            TradePlan[LastTradeEntityID] -= CurrentMoney;
-            if (TradePlan[LastTradeEntityID] <= 0)
-            {
-                TradePlan.Remove(LastTradeEntityID);
-                EditPlan.Remove(LastTradeEntityID);
-            }
-        }
-
-        SelectPlayerTimer.Start();
-        if (TradePlan.Count == 0)
-            Stop();
-    }
-
-    private static void RequestTrade(uint entityID, GameObject* gameObjectAddress)
-    {
-        TargetSystem.Instance()->Target = gameObjectAddress;
-        TradeRequestDetour(InventoryManager.Instance(), entityID);
-    }
-
-    private static void SetGil(uint money)
-    {
-        InventoryManager.Instance()->SetTradeGilAmount(money);
-        CurrentMoney = money;
-    }
-
-    private static void ConfirmPreCheck()
-    {
-        if (!PreCheckStatus[0])
-        {
-            AddonTradePreCheck();
-            PreCheckStatus[0] = true;
-        }
-    }
-
-    /// <summary>
-    ///     遍历交易计划发起交易申请Tick
-    /// </summary>
-    private void AutoRequestTradeTick(object? sender, ElapsedEventArgs? e)
-    {
-        if (!IsRunning || TradePlan.Count == 0)
-        {
-            Stop();
-            return;
-        }
-
-        if (IsTrading)
-            return;
-
-        if (LastTradeEntityID != 0 && TradePlan.ContainsKey(LastTradeEntityID))
-        {
-            var target = DService.Instance().ObjectTable.SearchByEntityID(LastTradeEntityID);
-            if (target is null || !IsDistanceEnough(target.Position))
-                return;
-
-            TaskHelper?.Enqueue(() => RequestTrade(LastTradeEntityID, (GameObject*)target.Address));
-        }
-
-        TradePlan.Keys.ToList().ForEach(entityID =>
-        {
-            var target = DService.Instance().ObjectTable.SearchByEntityID(entityID);
-            if (target is null || !IsDistanceEnough(target.Position))
-                return;
-
-            TaskHelper?.DelayNext(RandomDelay);
-            TaskHelper?.Enqueue(() => RequestTrade(entityID, (GameObject*)target.Address));
-        });
-    }
-
-    private static bool IsDistanceEnough(Vector3 pos2)
-    {
-        var pos = DService.Instance().ObjectTable.LocalPlayer.Position;
-        return Math.Pow(pos.X - pos2.X, 2) + Math.Pow(pos.Z - pos2.Z, 2) < 16;
+        runtime?.Dispose();
+        runtime = null;
     }
 
     #endregion
 
-    #region AddonTrade
+    #region 工具
 
-    /// <summary>
-    ///     主动取消交易
-    /// </summary>
-    private static void AddonTradeCancel()
+    private static bool IsWithinTradeDistance(Vector3 pos2)
     {
-        var unitBase = GetAddonByName("Trade");
-        if (unitBase is not null)
-            unitBase->Callback(1, 0);
+        if (DService.Instance().ObjectTable.LocalPlayer is not { } localPlayer)
+            return false;
+
+        var delta      = localPlayer.Position - pos2;
+        var distanceSq = delta.X * delta.X    + delta.Z * delta.Z;
+        return distanceSq < 16;
     }
 
-    /// <summary>
-    ///     第一次确认
-    /// </summary>
-    private static void AddonTradePreCheck()
+    private int GetRandomDelayMS()
     {
-        var unitBase = GetAddonByName("Trade");
-        if (unitBase is not null)
-            unitBase->Callback(0, 0);
+        var min = Math.Max(0, config.Delay1);
+        var max = Math.Max(0, config.Delay2);
+        if (max <= min) return min;
+        return Random.Shared.Next(min, max);
     }
 
-    private static void AddonTradeFinalCheck(bool confirm = true)
+    private void ValidateConfigChanges()
     {
-        var unitBase = SelectYesno;
-        if (unitBase is not null)
-            unitBase->Callback(confirm ? 0 : 1);
-    }
+        config.Step1 = Math.Abs(config.Step1);
+        config.Step2 = Math.Abs(config.Step2);
 
-    #endregion
+        if (config.Step1 == 0) config.Step1 = 50;
+        if (config.Step2 == 0) config.Step2 = 100;
+        if (config.Step2 < config.Step1)
+            (config.Step1, config.Step2) = (config.Step2, config.Step1);
 
-    #region Hook
+        config.Delay1 = Math.Max(0, config.Delay1);
+        config.Delay2 = Math.Max(0, config.Delay2);
+        if (config.Delay2 < config.Delay1)
+            (config.Delay1, config.Delay2) = (config.Delay2, config.Delay1);
+        if (config.Delay2 == config.Delay1)
+            config.Delay2 = config.Delay1 + 1;
 
-    private static readonly CompSig                     TradeRequestSig = new("48 89 6C 24 ?? 56 57 41 56 48 83 EC ?? 48 8B E9 44 8B F2 48 8D 0D");
-    public delegate         nint                        TradeRequestDelegate(InventoryManager* manager, uint entityID);
-    public static           Hook<TradeRequestDelegate>? TradeRequestHook;
-    
-    private static readonly CompSig TradeStatusUpdateSig =
-        new("E9 ?? ?? ?? ?? CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC 4C 8B C2 8B D1 48 8D 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC 48 8D 0D");
-    public delegate nint                             TradeStatusUpdateDelegate(InventoryManager* manager, nint entityID, nint a3);
-    public static   Hook<TradeStatusUpdateDelegate>? TradeStatusUpdateHook;
-    
-    private static nint TradeRequestDetour(InventoryManager* manager, uint entityID)
-    {
-        var ret = TradeRequestHook.Original(manager, entityID);
-        
-        if (ret == 0)
-            OnTradeBegin(entityID);
-        
-        return ret;
-    }
-
-    private nint TradeStatusDetour(InventoryManager* manager, nint entityID, nint a3)
-    {
-        switch (Marshal.ReadByte(a3 + 4))
-        {
-            case 1:
-                // 别人交易你
-                IsTrading = true;
-                OnTradeBegin((uint)Marshal.ReadInt32(a3 + 40));
-                break;
-            case 16:
-                // 交易状态更新
-                switch (Marshal.ReadByte(a3 + 5))
-                {
-                    case 3:
-                        OnTradePreCheckChanged((uint)Marshal.ReadInt32(a3 + 40), false);
-                        break;
-                    case 4:
-                    case 5:
-                        // 先确认条件的一边会产生一个a=4，两边都确认后发两个a=5
-                        // 最终确认先确认的产生一个a=6，两边都确认后发两个a=1
-                        OnTradePreCheckChanged((uint)Marshal.ReadInt32(a3 + 40), true);
-                        break;
-                }
-
-                break;
-            case 5:
-                OnTradeFinalChecked();
-                break;
-            case 7:
-                OnTradeCancelled();
-                break;
-            case 17:
-                OnTradeFinished();
-                break;
-        }
-
-        return TradeStatusUpdateHook.Original(manager, entityID, a3);
+        moneyButtons =
+        [
+            -config.Step2,
+            -config.Step1,
+            config.Step1,
+            config.Step2
+        ];
     }
 
     #endregion
 
-    private class Config : ModuleConfiguration
+    private class Config : ModuleConfig
     {
-        public int Step1  = 50;
-        public int Step2  = 100;
         public int Delay1 = 200;
         public int Delay2 = 500;
+        public int Step1  = 50;
+        public int Step2  = 100;
     }
 
     private class Member
     {
         public uint   EntityID;
         public string FirstName  = null!;
-        public string World      = null!;
         public int    GroupIndex = -1;
+        public string World      = null!;
 
         public Member() { }
 
         public Member(ICharacter gameObject)
         {
             EntityID  = gameObject.EntityID;
-            FirstName = gameObject.Name.TextValue;
-            
-            var worldID = ((Character*)gameObject.Address)->HomeWorld;
-            World = LuminaGetter.GetRow<World>(worldID)?.Name.ToString() ?? "???";
+            FirstName = gameObject.Name.ToString();
+
+            var worldID = gameObject.ToBCStruct()->HomeWorld;
+            World = LuminaWrapper.GetWorldName(worldID) ?? "???";
         }
 
-        public string FullName => 
+        public string FullName =>
             $"{FirstName}@{World}";
     }
+
+    private readonly record struct PreCheckState
+    (
+        bool SelfConfirmed,
+        bool OtherConfirmed
+    );
+
+    private sealed class SendMoneyRuntime : IDisposable
+    {
+        private static readonly CompSig TradeRequestSig = new("48 89 6C 24 ?? 56 57 41 56 48 83 EC ?? 48 8B E9 44 8B F2 48 8D 0D");
+        private delegate nint                        TradeRequestDelegate(InventoryManager* manager, uint entityID);
+        private          Hook<TradeRequestDelegate>? TradeRequestHook;
+        
+        private static readonly CompSig TradeStatusUpdateSig = new
+        (
+            "E9 ?? ?? ?? ?? CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC 4C 8B C2 8B D1 48 8D 0D ?? ?? ?? ?? E9 ?? ?? ?? ?? CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC 48 8D 0D"
+        );
+        private delegate nint                             TradeStatusUpdateDelegate(InventoryManager* manager, nint entityID, nint a3);
+        private          Hook<TradeStatusUpdateDelegate>? TradeStatusUpdateHook;
+        
+        private readonly AutoSendMoney          owner;
+        private readonly HashSet<uint>          pendingTradeRequests = [];
+        private readonly Dictionary<uint, long> tradePlan;
+        private          PreCheckState          checkState;
+        private          uint                   currentMoney;
+        private          bool                   isDisposed;
+
+        private bool isTrading;
+        private uint lastTradeEntityID;
+        
+        public SendMoneyRuntime(AutoSendMoney owner)
+        {
+            this.owner = owner;
+            tradePlan  = [.. owner.editPlan.Where(i => i.Value > 0)];
+
+            TradeRequestHook = TradeRequestSig.GetHook<TradeRequestDelegate>(OnTradeRequest);
+            TradeRequestHook.Enable();
+
+            TradeStatusUpdateHook = TradeStatusUpdateSig.GetHook<TradeStatusUpdateDelegate>(OnTradeStatusUpdate);
+            TradeStatusUpdateHook.Enable();
+
+            DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Trade", OnTradeAddonSetup);
+            FrameworkManager.Instance().Reg(OnFrameworkTick, 1_000);
+
+            LogMessageManager.Instance().RegPost(OnLogMessage);
+
+            TryQueueNextTrade();
+        }
+
+        public void Dispose()
+        {
+            if (isDisposed) return;
+            isDisposed = true;
+
+            FrameworkManager.Instance().Unreg(OnFrameworkTick);
+            DService.Instance().AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "Trade", OnTradeAddonSetup);
+
+            LogMessageManager.Instance().Unreg(OnLogMessage);
+
+            TradeRequestHook?.Dispose();
+            TradeRequestHook = null;
+
+            TradeStatusUpdateHook?.Dispose();
+            TradeStatusUpdateHook = null;
+
+            owner.TaskHelper?.Abort();
+        }
+
+        public long GetRemaining(uint entityID) =>
+            tradePlan.GetValueOrDefault(entityID, 0);
+
+        private void OnLogMessage(uint logMessageID, LogMessageQueueItem item)
+        {
+            if (!TradeFinishLogMessages.Contains(logMessageID)) return;
+            if (Trade == null) return;
+
+            Trade->Close(true);
+            CompleteTrade();
+        }
+
+        private void OnTradeAddonSetup(AddonEvent type, AddonArgs args)
+        {
+            owner.TaskHelper?.Abort();
+            pendingTradeRequests.Clear();
+
+            if (!tradePlan.TryGetValue(lastTradeEntityID, out var value))
+            {
+                owner.TaskHelper?.DelayNext(owner.GetRandomDelayMS());
+                owner.TaskHelper?.Enqueue(CancelTradeAddon, nameof(CancelTradeAddon));
+            }
+            else
+            {
+                owner.TaskHelper?.DelayNext(owner.GetRandomDelayMS());
+                owner.TaskHelper?.Enqueue(() => SetTradeGil((uint)Math.Min(value, MAXIMUM_GIL_PER_TRADE)), nameof(SetTradeGil));
+                owner.TaskHelper?.DelayNext(owner.GetRandomDelayMS());
+                owner.TaskHelper?.Enqueue(ConfirmPreCheck, nameof(ConfirmPreCheck));
+            }
+        }
+
+        private nint OnTradeRequest(InventoryManager* manager, uint entityID)
+        {
+            if (TradeRequestHook == null) return 0;
+            var ret = TradeRequestHook.Original(manager, entityID);
+
+            if (ret == 0)
+                BeginTrade(entityID);
+            else
+                pendingTradeRequests.Remove(entityID);
+
+            return ret;
+        }
+
+        private nint OnTradeStatusUpdate(InventoryManager* manager, nint entityID, nint a3)
+        {
+            var eventType = Marshal.ReadByte(a3 + 4);
+
+            switch (eventType)
+            {
+                case 1:
+                    BeginTrade((uint)Marshal.ReadInt32(a3 + 40));
+                    break;
+                case 16:
+                    var updateType = Marshal.ReadByte(a3 + 5);
+
+                    switch (updateType)
+                    {
+                        case 3:
+                            UpdatePreCheck((uint)Marshal.ReadInt32(a3 + 40), false);
+                            break;
+                        case 4:
+                        case 5:
+                            UpdatePreCheck((uint)Marshal.ReadInt32(a3 + 40), true);
+                            break;
+                    }
+
+                    break;
+                case 5:
+                    ConfirmFinal();
+                    break;
+                case 7:
+                    CancelTrade();
+                    break;
+            }
+
+            return TradeStatusUpdateHook == null ? 0 : TradeStatusUpdateHook.Original(manager, entityID, a3);
+        }
+
+        private void BeginTrade(uint entityID)
+        {
+            currentMoney      = 0;
+            checkState        = default;
+            isTrading         = true;
+            lastTradeEntityID = entityID;
+            pendingTradeRequests.Remove(entityID);
+        }
+
+        private void UpdatePreCheck(uint objectID, bool confirm)
+        {
+            if (objectID == LocalPlayerState.EntityID)
+                checkState = checkState with { SelfConfirmed = confirm };
+            else if (objectID == lastTradeEntityID)
+                checkState = checkState with { OtherConfirmed = confirm };
+
+            if (!tradePlan.TryGetValue(lastTradeEntityID, out var value))
+            {
+                owner.TaskHelper?.DelayNext(owner.GetRandomDelayMS());
+                owner.TaskHelper?.Enqueue(CancelTradeAddon, nameof(CancelTradeAddon));
+                return;
+            }
+
+            if (currentMoney <= value && checkState is { SelfConfirmed: false, OtherConfirmed: true })
+            {
+                owner.TaskHelper?.DelayNext(owner.GetRandomDelayMS());
+                owner.TaskHelper?.Enqueue(ConfirmPreCheck, nameof(ConfirmPreCheck));
+            }
+        }
+
+        private void ConfirmFinal()
+        {
+            if (tradePlan.TryGetValue(lastTradeEntityID, out var value) && currentMoney <= value)
+            {
+                owner.TaskHelper?.DelayNext(owner.GetRandomDelayMS());
+                owner.TaskHelper?.Enqueue(() => FinalCheckTradeAddon(), nameof(FinalCheckTradeAddon));
+            }
+        }
+
+        private void CancelTrade()
+        {
+            isTrading = false;
+            pendingTradeRequests.Clear();
+            checkState = default;
+
+            owner.TaskHelper?.Abort();
+        }
+
+        private void CompleteTrade()
+        {
+            isTrading = false;
+            pendingTradeRequests.Clear();
+            checkState = default;
+
+            if (!tradePlan.ContainsKey(lastTradeEntityID))
+                DLog.Warning(Lang.Get("AutoSendMoney-NoPlan"));
+            else
+            {
+                tradePlan[lastTradeEntityID] -= currentMoney;
+
+                if (tradePlan[lastTradeEntityID] <= 0)
+                {
+                    tradePlan.Remove(lastTradeEntityID);
+                    owner.editPlan.Remove(lastTradeEntityID);
+                }
+            }
+
+            if (tradePlan.Count == 0)
+                StopSelf();
+        }
+
+        private void IssueTradeRequest(uint entityID, GameObject* gameObjectAddress)
+        {
+            TargetSystem.Instance()->Target = gameObjectAddress;
+            InventoryManager.Instance()->SendTradeRequest(entityID);
+        }
+
+        private bool SetTradeGil(uint money)
+        {
+            if (!Trade->IsAddonAndNodesReady()) return false;
+
+            InventoryManager.Instance()->SetTradeGilAmount(money);
+            currentMoney = money;
+            return true;
+        }
+
+        private bool ConfirmPreCheck()
+        {
+            if (!Trade->IsAddonAndNodesReady()) return false;
+            if (checkState.SelfConfirmed) return true;
+
+            Trade->GetComponentButtonById(33)->Click();
+            checkState = checkState with { SelfConfirmed = true };
+            return true;
+        }
+
+        private void OnFrameworkTick(IFramework framework) =>
+            TryQueueNextTrade();
+
+        private void TryQueueNextTrade()
+        {
+            if (tradePlan.Count == 0)
+            {
+                StopSelf();
+                return;
+            }
+
+            var taskHelper = owner.TaskHelper;
+            if (taskHelper == null) return;
+
+            if (isTrading || taskHelper.IsBusy)
+                return;
+
+            if (TrySelectTarget(out var entityID, out var targetAddress))
+            {
+                if (!pendingTradeRequests.Add(entityID))
+                    return;
+
+                taskHelper.DelayNext(owner.GetRandomDelayMS(), $"{nameof(AutoSendMoney)}-IssueTradeRequest");
+                taskHelper.Enqueue(() => IssueTradeRequest(entityID, (GameObject*)targetAddress), $"{nameof(IssueTradeRequest)}({entityID})");
+            }
+        }
+
+        private void StopSelf()
+        {
+            owner.runtime = null;
+            Dispose();
+        }
+
+        private bool TrySelectTarget(out uint entityID, out nint address)
+        {
+            entityID = 0;
+            address  = 0;
+
+            if (lastTradeEntityID != 0 && tradePlan.ContainsKey(lastTradeEntityID) && !pendingTradeRequests.Contains(lastTradeEntityID))
+            {
+                var target = DService.Instance().ObjectTable.SearchByEntityID(lastTradeEntityID);
+
+                if (target != null && IsWithinTradeDistance(target.Position))
+                {
+                    entityID = lastTradeEntityID;
+                    address  = target.Address;
+                    return true;
+                }
+            }
+
+            foreach (var id in tradePlan.Keys)
+            {
+                if (pendingTradeRequests.Contains(id)) continue;
+
+                var target = DService.Instance().ObjectTable.SearchByEntityID(id);
+                if (target == null) continue;
+
+                if (!IsWithinTradeDistance(target.Position)) continue;
+
+                entityID = id;
+                address  = target.Address;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void CancelTradeAddon()
+        {
+            if (Trade == null) return;
+            Trade->Callback(1, 0);
+        }
+
+        private static void FinalCheckTradeAddon(bool confirm = true)
+        {
+            if (SelectYesno == null) return;
+            SelectYesno->Callback(confirm ? 0 : 1);
+        }
+        
+        #region 常量
+
+        private static readonly FrozenSet<uint>        TradeFinishLogMessages = [10920, 10921, 10922, 10923];
+
+        #endregion
+    }
+    
+    #region 常量
+
+    private const uint MAXIMUM_GIL_PER_TRADE = 1_000_000;
+
+    #endregion
 }

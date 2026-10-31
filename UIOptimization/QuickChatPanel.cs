@@ -1,545 +1,87 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Frozen;
 using System.Numerics;
-using DailyRoutines.Abstracts;
+using DailyRoutines.Common.Extensions;
+using DailyRoutines.Common.KamiToolKit.Addons;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using DailyRoutines.Internal;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.ClientState.Keys;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Interface.Colors;
-using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Client.UI.Shell;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using FFXIVClientStructs.Interop;
+using KamiToolKit.Classes;
 using KamiToolKit.Nodes;
+using KamiToolKit.Premade.Node.ListItem;
+using KamiToolKit.Premade.Node.Simple;
 using Lumina.Excel.Sheets;
+using Lumina.Text.ReadOnly;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
+using OmenTools.Threading.TaskHelper;
+using Action = System.Action;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class QuickChatPanel : DailyModuleBase
+public unsafe class QuickChatPanel : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("QuickChatPanelTitle"),
-        Description = GetLoc("QuickChatPanelDescription"),
-        Category    = ModuleCategories.UIOptimization,
-    };
-    
-    private static readonly Dictionary<MacroDisplayMode, string> MacroDisplayModeLoc = new()
-    {
-        [MacroDisplayMode.List]    = GetLoc("QuickChatPanel-List"),
-        [MacroDisplayMode.Buttons] = GetLoc("QuickChatPanel-Buttons"),
+        Title       = Lang.Get("QuickChatPanelTitle"),
+        Description = Lang.Get("QuickChatPanelDescription"),
+        Category    = ModuleCategory.UIOptimization
     };
 
-    private static readonly char[] SeIconChars = Enum.GetValues<SeIconChar>().Select(x => (char)x).ToArray();
-    
-    private static Config ModuleConfig = null!;
+    private Config config = null!;
 
-    private static LuminaSearcher<Item>? Searcher;
-    
-    private static string MessageInput    = string.Empty;
-    private static int    DropMacroIndex  = -1;
-    
-    private static IconButtonNode? ImageButton;
-    
-    private static List<PanelTabBase> PanelTabs = [];
+    private int dropMacroIndex   = -1;
+    private int dropMessageIndex = -1;
+
+    private TextButtonNode?      sendButton;
+    private QuickChatPanelAddon? chatPanelAddon;
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
-        
+        config = Config.Load(this) ?? new();
+
         TaskHelper ??= new() { TimeoutMS = 5_000 };
-        
-        Overlay       ??= new(this);
-        Overlay.Flags |=  ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoScrollWithMouse;
-        Overlay.Flags &=  ~ImGuiWindowFlags.AlwaysAutoResize;
-        Overlay.SizeConstraints = new()
-        {
-            MinimumSize = new(1, ModuleConfig.OverlayHeight),
-        };
-        
-        if (ModuleConfig.SoundEffectNotes.Count <= 0)
+
+        if (config.SoundEffectNotes.Count <= 0)
         {
             for (var i = 1U; i < 17; i++)
-                ModuleConfig.SoundEffectNotes[i] = $"<se.{i}>";
+                config.SoundEffectNotes[i] = $"<se.{i}>";
         }
-        
-        Searcher ??= new(LuminaGetter.Get<Item>(), [x => x.Name.ToString(), x => x.RowId.ToString()]);
-        
-        // 初始化 Panel Tabs
-        PanelTabs =
-        [
-            new MessageTab(this),
-            new MacroTab(this),
-            new SystemSoundTab(this),
-            new GameItemTab(this),
-            new SpecialIconCharTab(this)
-        ];
+
+        chatPanelAddon = new(this)
+        {
+            InternalName          = "DRQuickChatPanel",
+            Title                 = Info.Title,
+            Size                  = new(542f, 400f),
+            RememberClosePosition = false,
+            DisableClose          = true
+        };
 
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "ChatLog", OnAddon);
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,    "ChatLog", OnAddon);
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "ChatLog", OnAddon);
     }
 
-    protected override void ConfigUI()
-    {
-        using var table = ImRaii.Table("ConfigTable", 2, ImGuiTableFlags.SizingFixedFit);
-        if (!table) return;
-
-        ImGui.TableSetupColumn("Labels", ImGuiTableColumnFlags.WidthFixed);
-        ImGui.TableSetupColumn("Controls", ImGuiTableColumnFlags.WidthStretch);
-
-        // Messages 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-Messages")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        using (var combo = ImRaii.Combo("###MessagesCombo", GetLoc("QuickChatPanel-SavedMessagesAmountText", ModuleConfig.SavedMessages.Count)))
-        {
-            if (combo)
-            {
-                ImGui.InputText("###MessageToSaveInput", ref MessageInput, 1000);
-
-                ImGui.SameLine();
-                if (ImGuiOm.ButtonIcon("###MessagesInputAdd", FontAwesomeIcon.Plus))
-                {
-                    if (!ModuleConfig.SavedMessages.Contains(MessageInput))
-                    {
-                        ModuleConfig.SavedMessages.Add(MessageInput);
-                        SaveConfig(ModuleConfig);
-                    }
-                }
-
-                if (ModuleConfig.SavedMessages.Count > 0) 
-                    ImGui.Separator();
-
-                foreach (var message in ModuleConfig.SavedMessages.ToList())
-                {
-                    ImGuiOm.ButtonSelectable(message);
-
-                    using var popup = ImRaii.ContextPopup($"{message}");
-                    if (!popup) continue;
-                    
-                    if (ImGuiOm.ButtonSelectable(GetLoc("Delete")))
-                        ModuleConfig.SavedMessages.Remove(message);
-                }
-            }
-        }
-
-        // Macro 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-Macro")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        using (var combo = ImRaii.Combo("###MacroCombo", GetLoc("QuickChatPanel-SavedMacrosAmountText", ModuleConfig.SavedMacros.Count),
-                                        ImGuiComboFlags.HeightLargest))
-        {
-            if (combo)
-            {
-                DrawMacroChild(true);
-
-                ImGui.SameLine();
-                DrawMacroChild(false);
-            }
-        }
-
-        // SystemSound 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-SystemSound")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        using (var combo = ImRaii.Combo("###SoundEffectNoteEditCombo", string.Empty, ImGuiComboFlags.HeightLarge))
-        {
-            if (combo)
-            {
-                
-                foreach (var seNote in ModuleConfig.SoundEffectNotes)
-                {
-                    using var id = ImRaii.PushId($"{seNote.Key}");
-                    
-                    ImGui.AlignTextToFramePadding();
-                    ImGui.TextUnformatted($"<se.{seNote.Key}>{(seNote.Key < 10 ? "  " : "")}");
-
-                    ImGui.SameLine();
-                    ImGui.TextUnformatted("——>");
-
-                    var note = seNote.Value;
-                    ImGui.SameLine();
-                    ImGui.SetNextItemWidth(200f * GlobalFontScale);
-                    if (ImGui.InputText("###SENoteInput", ref note, 32))
-                        ModuleConfig.SoundEffectNotes[seNote.Key] = note;
-
-                    if (ImGui.IsItemDeactivatedAfterEdit())
-                        SaveConfig(ModuleConfig);
-                }
-            }
-        }
-
-        // ButtonOffset 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-ButtonOffset")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        ImGui.InputFloat2("###ButtonOffsetInput", ref ModuleConfig.ButtonOffset, format: "%.1f");
-        if (ImGui.IsItemDeactivatedAfterEdit())
-            SaveConfig(ModuleConfig);
-
-        // ButtonIcon 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-ButtonIcon")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        ImGui.InputInt("###ButtonIconInput", ref ModuleConfig.ButtonIcon);
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            ModuleConfig.ButtonIcon = Math.Max(ModuleConfig.ButtonIcon, 1);
-            SaveConfig(ModuleConfig);
-        }
-        
-        // ButtonBackground 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-ButtonBackgroundVisible")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        if (ImGui.Checkbox("###ButtonBackgroundVisibleInput", ref ModuleConfig.ButtonBackgroundVisible))
-            SaveConfig(ModuleConfig);
-
-        // FontScale 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("FontScale")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        ImGui.InputFloat("###FontScaleInput", ref ModuleConfig.FontScale, 0, 0, "%.1f");
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            ModuleConfig.FontScale = (float)Math.Clamp(ModuleConfig.FontScale, 0.1, 10f);
-            SaveConfig(ModuleConfig);
-        }
-
-        // OverlayHeight 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-OverlayHeight")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        ImGui.InputFloat("###OverlayHeightInput", ref ModuleConfig.OverlayHeight, 0, 0, "%.1f");
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            ModuleConfig.OverlayHeight = Math.Clamp(ModuleConfig.OverlayHeight, 100f, 10000f);
-            SaveConfig(ModuleConfig);
-
-            Overlay.SizeConstraints = new()
-            {
-                MinimumSize = new(1, ModuleConfig.OverlayHeight),
-            };
-        }
-
-        // OverlayPosOffset 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-OverlayPosOffset")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        ImGui.InputFloat2("###OverlayPosOffsetInput", ref ModuleConfig.OverlayOffset, format: "%.1f");
-        if (ImGui.IsItemDeactivatedAfterEdit())
-            SaveConfig(ModuleConfig);
-
-        // OverlayMacroDisplayMode 行
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-OverlayMacroDisplayMode")}:");
-        
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(200f * GlobalFontScale);
-        using (var combo = ImRaii.Combo("###OverlayMacroDisplayModeCombo", MacroDisplayModeLoc[ModuleConfig.OverlayMacroDisplayMode]))
-        {
-            if (combo)
-            {
-                foreach (MacroDisplayMode mode in Enum.GetValues(typeof(MacroDisplayMode)))
-                {
-                    if (ImGui.Selectable(MacroDisplayModeLoc[mode], mode == ModuleConfig.OverlayMacroDisplayMode))
-                    {
-                        ModuleConfig.OverlayMacroDisplayMode = mode;
-                        SaveConfig(ModuleConfig);
-                    }
-                }
-            }
-        }
-        
-        return;
-
-        void DrawMacroChild(bool isIndividual)
-        {
-            var childSize = new Vector2(200 * GlobalFontScale, 300 * GlobalFontScale);
-            var module    = RaptureMacroModule.Instance();
-            if (module == null) return;
-
-            using var child = ImRaii.Child($"{(isIndividual ? "Individual" : "Shared")}MacroSelectChild", childSize);
-            if (!child) return;
-
-            ImGui.TextUnformatted(GetLoc($"QuickChatPanel-{(isIndividual ? "Individual" : "Shared")}Macros"));
-            ImGui.Separator();
-
-            var span = isIndividual ? module->Individual : module->Shared;
-            for (var i = 0; i < span.Length; i++)
-            {
-                var macro = span.GetPointer(i);
-                if (macro == null) continue;
-
-                var name = macro->Name.ToString();
-                var icon = ImageHelper.GetGameIcon(macro->IconId);
-                if (string.IsNullOrEmpty(name) || icon == null) continue;
-
-                var currentSavedMacro = (*macro).ToSavedMacro();
-                currentSavedMacro.Position = i;
-                currentSavedMacro.Category = isIndividual ? 0U : 1U;
-                
-                using (ImRaii.PushId($"{currentSavedMacro.Category}-{currentSavedMacro.Position}"))
-                {
-                    if (ImGuiOm.SelectableImageWithText(icon.Handle, new(24), name,
-                                                        ModuleConfig.SavedMacros.Contains(currentSavedMacro),
-                                                        ImGuiSelectableFlags.DontClosePopups))
-                    {
-                        if (!ModuleConfig.SavedMacros.Remove(currentSavedMacro))
-                        {
-                            ModuleConfig.SavedMacros.Add(currentSavedMacro);
-                            SaveConfig(ModuleConfig);
-                        }
-                    }
-                    
-                    if (!ModuleConfig.SavedMacros.Contains(currentSavedMacro)) continue;
-
-                    using (var context = ImRaii.ContextPopupItem("Context"))
-                    {
-                        if (!context) continue;
-                        
-                        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), $"{GetLoc("QuickChatPanel-LastUpdateTime")}:");
-
-                        ImGui.SameLine();
-                        ImGui.TextUnformatted($"{ModuleConfig.SavedMacros.Find(x => x.Equals(currentSavedMacro))?.LastUpdateTime}");
-
-                        ImGui.Separator();
-
-                        if (ImGuiOm.SelectableTextCentered(GetLoc("Refresh")))
-                        {
-                            var currentIndex = ModuleConfig.SavedMacros.IndexOf(currentSavedMacro);
-                            if (currentIndex != -1)
-                            {
-                                ModuleConfig.SavedMacros[currentIndex] = currentSavedMacro;
-                                SaveConfig(ModuleConfig);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    protected override void OverlayPreDraw()
-    {
-        if (DService.Instance().ObjectTable.LocalPlayer == null ||
-            ChatLog == null || !ChatLog->IsVisible ||
-            ChatLog->GetNodeById(5) == null)
-            Overlay.IsOpen = false;
-    }
-
-    protected override void OverlayUI()
-    {
-        if (DService.Instance().KeyState[VirtualKey.ESCAPE])
-        {
-            Overlay.IsOpen = false;
-            return;
-        }
-        
-        using var font = FontManager.Instance().GetUIFont(ModuleConfig.FontScale).Push();
-
-        var itemSpacing = ImGui.GetStyle().ItemSpacing;
-        
-        var textInputNode = ChatLog->GetNodeById(5);
-        var windowNode    = ChatLog->RootNode;
-        var buttonPos     = new Vector2(windowNode->ScreenX + windowNode->Width, textInputNode->ScreenY)      + ModuleConfig.ButtonOffset;
-        ImGui.SetWindowPos(buttonPos with { Y = buttonPos.Y - ImGui.GetWindowSize().Y - (3 * itemSpacing.Y) } + ModuleConfig.OverlayOffset);
-        
-        var isOpen = true;
-        ImGui.SetNextWindowPos(new(ImGui.GetWindowPos().X, ImGui.GetWindowPos().Y + ImGui.GetWindowHeight() - itemSpacing.Y));
-        ImGui.SetNextWindowSize(new(ImGui.GetWindowWidth(), 2 * ImGui.GetTextLineHeight()));
-
-        if (ImGui.Begin("###QuickChatPanel-SendMessages", ref isOpen,
-                        ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
-        {
-            if (ImGuiOm.SelectableTextCentered(GetLoc("QuickChatPanel-SendChatboxMessage")))
-            {
-                var inputNode = (AtkComponentNode*)ChatLog->GetNodeById(5);
-                var textNode  = inputNode->Component->UldManager.SearchNodeById(16)->GetAsAtkTextNode();
-                var text      = SeString.Parse(textNode->NodeText);
-                if (!string.IsNullOrWhiteSpace(text.ToString()))
-                {
-                    ChatManager.Instance().SendMessage(text.Encode());
-
-                    var inputComponent = (AtkComponentTextInput*)inputNode->Component;
-                    inputComponent->EvaluatedString.Clear();
-                    inputComponent->RawString.Clear();
-                    inputComponent->AvailableLines.Clear();
-                    inputComponent->HighlightedAutoTranslateOptionColorPrefix.Clear();
-                    inputComponent->HighlightedAutoTranslateOptionColorSuffix.Clear();
-                    textNode->NodeText.Clear();
-
-                    Overlay.IsOpen = false;
-                }
-            }
-            
-            ImGui.End();
-        }
-
-        using (ImRaii.Group())
-            DrawOverlayContent();
-
-        ImGui.Separator();
-    }
-
-    private static void DrawOverlayContent()
-    {
-        using var tabBar = ImRaii.TabBar("###QuickChatPanel", ImGuiTabBarFlags.Reorderable);
-        if (!tabBar) return;
-        
-        // 使用 PanelTabs 列表绘制所有 Tab
-        foreach (var panelTab in PanelTabs)
-        {
-            using var item = ImRaii.TabItem(panelTab.TabName);
-            if (item)
-                panelTab.DrawTabContent();
-            else if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(panelTab.Tooltip))
-                ImGuiOm.TooltipHover(panelTab.Tooltip);
-        }
-
-        if (ImGui.TabItemButton($"{FontAwesomeIcon.Cog.ToIconString()}###OpenQuickChatPanelSettings"))
-            ChatManager.Instance().SendMessage($"/pdr search {GetLoc("QuickChatPanelTitle")}");
-    }
-
-    private void OnAddon(AddonEvent type, AddonArgs? args)
-    {
-        switch (type)
-        {
-            case AddonEvent.PostSetup:
-            case AddonEvent.PostDraw:
-                if (ChatLog == null) return;
-                
-                var textInputNode = ChatLog->GetComponentNodeById(5);
-                if (textInputNode == null) return;
-
-                var inputBackground = textInputNode->Component->UldManager.SearchNodeById(17);
-                if (inputBackground == null) return;
-                
-                var textInputDisplayNode = textInputNode->Component->UldManager.SearchNodeById(16);
-                if (textInputDisplayNode == null) return;
-
-                var windowNode = ChatLog->RootNode;
-                if (windowNode == null) return;
-                
-                inputBackground->SetWidth((ushort)(windowNode->Width      - textInputNode->Height - 40));
-                textInputDisplayNode->SetWidth((ushort)(windowNode->Width - textInputNode->Height - 40));
-                textInputNode->SetWidth((ushort)(windowNode->Width        - textInputNode->Height - 40));
-
-                if (ImageButton == null)
-                {
-                    ImageButton = new()
-                    {
-                        Size        = new(textInputNode->Height),
-                        IsVisible   = true,
-                        IsEnabled   = true,
-                        IconId      = (uint)ModuleConfig.ButtonIcon,
-                        OnClick     = () => { Overlay.Toggle(); },
-                        TextTooltip = Info.Title,
-                        Position = new Vector2(textInputNode->Width - textInputNode->Height, 0) +
-                                   ModuleConfig.ButtonOffset
-                    };
-                    
-                    ImageButton?.AttachNode(textInputNode);
-                }
-
-                if (Throttler.Throttle("QuickChatPanel-UpdateButtonNodes"))
-                {
-                    ImageButton.IconId   = (uint)ModuleConfig.ButtonIcon;
-                    ImageButton.Position = new Vector2(windowNode->Width - (2 * textInputNode->Height), 0) + ModuleConfig.ButtonOffset;
-                    ImageButton.Size     = new(textInputNode->Height);
-
-                    ImageButton.BackgroundNode.IsVisible = ModuleConfig.ButtonBackgroundVisible;
-                }
-
-                break;
-            case AddonEvent.PreFinalize:
-                ImageButton?.Dispose();
-                ImageButton = null;
-                break;
-        }
-    }
-    
-    public void SwapMacros(int index1, int index2)
-    {
-        (ModuleConfig.SavedMacros[index1], ModuleConfig.SavedMacros[index2]) =
-            (ModuleConfig.SavedMacros[index2], ModuleConfig.SavedMacros[index1]);
-
-        TaskHelper.Abort();
-
-        TaskHelper.DelayNext(500);
-        TaskHelper.Enqueue(() => { SaveConfig(ModuleConfig); });
-    }
-
-    public void SwapMessages(int index1, int index2)
-    {
-        (ModuleConfig.SavedMessages[index1], ModuleConfig.SavedMessages[index2]) =
-            (ModuleConfig.SavedMessages[index2], ModuleConfig.SavedMessages[index1]);
-
-        TaskHelper.Abort();
-
-        TaskHelper.DelayNext(500);
-        TaskHelper.Enqueue(() => { SaveConfig(ModuleConfig); });
-    }
-
     protected override void Uninit()
     {
-        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);     
-        OnAddon(AddonEvent.PreFinalize, null);
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
+
+        sendButton?.Dispose();
+        sendButton = null;
+
+        chatPanelAddon?.Dispose();
+        chatPanelAddon = null;
 
         // 恢复
         if (ChatLog != null)
@@ -549,7 +91,7 @@ public unsafe class QuickChatPanel : DailyModuleBase
 
             var inputBackground = textInputNode->Component->UldManager.SearchNodeById(17);
             if (inputBackground == null) return;
-                
+
             var textInputDisplayNode = textInputNode->Component->UldManager.SearchNodeById(16);
             if (textInputDisplayNode == null) return;
 
@@ -561,8 +103,1391 @@ public unsafe class QuickChatPanel : DailyModuleBase
             textInputDisplayNode->SetWidth(width);
             textInputNode->SetWidth(width);
         }
-        
-        Searcher = null;
+    }
+
+    protected override void ConfigUI()
+    {
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), Lang.Get("QuickChatPanel-Messages"));
+
+        using (ImRaii.PushIndent())
+            DrawMessageOrder();
+
+        ImGui.NewLine();
+
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), Lang.Get("QuickChatPanel-Macro"));
+
+        using (ImRaii.PushIndent())
+            DrawMacroOrder();
+
+        return;
+
+        void DrawMessageOrder()
+        {
+            if (config.SavedMessages.Count == 0)
+            {
+                ImGui.TextDisabled(Lang.Get("QuickChatPanel-SavedMessagesAmountText", 0));
+                return;
+            }
+
+            for (var i = 0; i < config.SavedMessages.Count; i++)
+            {
+                var message = config.SavedMessages[i];
+                ImGui.Button($"{i + 1}. {message}##QuickChatPanelMessageOrder{i}", new(320f * GlobalUIScale, 0f));
+
+                using (var source = ImRaii.DragDropSource())
+                {
+                    if (source)
+                    {
+                        if (ImGui.SetDragDropPayload("QuickChatPanelMessageReorder", []))
+                            dropMessageIndex = i;
+
+                        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), message);
+                    }
+                }
+
+                using var target = ImRaii.DragDropTarget();
+                if (!target) continue;
+
+                ImGui.AcceptDragDropPayload("QuickChatPanelMessageReorder");
+                if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left) || dropMessageIndex < 0) continue;
+
+                (config.SavedMessages[dropMessageIndex], config.SavedMessages[i]) =
+                    (config.SavedMessages[i], config.SavedMessages[dropMessageIndex]);
+                dropMessageIndex = -1;
+                config.Save(this);
+            }
+        }
+
+        void DrawMacroOrder()
+        {
+            if (config.SavedMacros.Count == 0)
+            {
+                ImGui.TextDisabled(Lang.Get("QuickChatPanel-SavedMacrosAmountText", 0));
+                return;
+            }
+
+            for (var i = 0; i < config.SavedMacros.Count; i++)
+            {
+                var macro = config.SavedMacros[i];
+                ImGui.Button($"{i + 1}. {macro.Name}##QuickChatPanelMacroOrder{i}", new(320f * GlobalUIScale, 0f));
+
+                using (var source = ImRaii.DragDropSource())
+                {
+                    if (source)
+                    {
+                        if (ImGui.SetDragDropPayload("QuickChatPanelMacroReorder", []))
+                            dropMacroIndex = i;
+
+                        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), macro.Name);
+                    }
+                }
+
+                using var target = ImRaii.DragDropTarget();
+                if (!target) continue;
+
+                ImGui.AcceptDragDropPayload("QuickChatPanelMacroReorder");
+                if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left) || dropMacroIndex < 0) continue;
+
+                (config.SavedMacros[dropMacroIndex], config.SavedMacros[i]) =
+                    (config.SavedMacros[i], config.SavedMacros[dropMacroIndex]);
+                dropMacroIndex = -1;
+                config.Save(this);
+            }
+        }
+    }
+
+    private void OnAddon(AddonEvent type, AddonArgs? args)
+    {
+        switch (type)
+        {
+            case AddonEvent.PostSetup:
+            case AddonEvent.PostDraw:
+                if (ChatLog == null) return;
+
+                var textInputNode = ChatLog->GetComponentNodeById(5);
+                if (textInputNode == null) return;
+
+                var inputBackground = textInputNode->Component->UldManager.SearchNodeById(17);
+                if (inputBackground == null) return;
+
+                var textInputDisplayNode = textInputNode->Component->UldManager.SearchNodeById(16);
+                if (textInputDisplayNode == null) return;
+
+                var windowNode = ChatLog->RootNode;
+                if (windowNode == null) return;
+
+                const float OFFSET = 40f;
+
+                if (sendButton == null)
+                {
+                    sendButton = new()
+                    {
+                        Size        = new(64, textInputNode->Height + 4),
+                        IsVisible   = true,
+                        IsEnabled   = true,
+                        String      = Lang.Get("Send"),
+                        TextTooltip = Info.Title
+
+                    };
+
+                    sendButton.AddEvent
+                    (
+                        AtkEventType.MouseClick,
+                        (_, _, _, _, data) =>
+                        {
+                            if (data->IsRightClick)
+                                chatPanelAddon.TogglePanel();
+                            else if (data->IsLeftClick)
+                            {
+                                if (!SendChatboxMessage())
+                                    chatPanelAddon.TogglePanel();
+                            }
+                        }
+                    );
+
+                    sendButton.Position = new Vector2(windowNode->Width - sendButton.Width - OFFSET, 0);
+                    sendButton.LabelNode.AutoAdjustTextSize();
+
+                    sendButton?.AttachNode(textInputNode);
+                }
+
+                inputBackground->SetWidth((ushort)(windowNode->Width      - sendButton.Width - OFFSET));
+                textInputDisplayNode->SetWidth((ushort)(windowNode->Width - sendButton.Width - OFFSET));
+                textInputNode->SetWidth((ushort)(windowNode->Width        - sendButton.Width - OFFSET));
+
+                sendButton.X      = windowNode->Width - sendButton.Width - OFFSET;
+                sendButton.Size   = sendButton.Size with { Y = textInputNode->Height + 4 };
+                sendButton.String = Lang.Get(IsAnyTextInBlock() ? "Send" : "Open");
+
+                break;
+            case AddonEvent.PreFinalize:
+                sendButton = null;
+                break;
+        }
+    }
+
+    private static bool IsAnyTextInBlock()
+    {
+        if (ChatLog == null || !ChatLog->IsAddonAndNodesReady()) return false;
+
+        var inputNode = (AtkComponentNode*)ChatLog->GetNodeById(5);
+        if (inputNode == null) return false;
+
+        var textNode = inputNode->Component->UldManager.SearchNodeById(16)->GetAsAtkTextNode();
+        if (textNode == null) return false;
+
+        var text = textNode->NodeText.ToString();
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        return true;
+    }
+
+    private bool SendChatboxMessage()
+    {
+        if (ChatLog == null || !ChatLog->IsAddonAndNodesReady()) return false;
+
+        var inputNode = (AtkComponentNode*)ChatLog->GetNodeById(5);
+        if (inputNode == null) return false;
+
+        var textNode = inputNode->Component->UldManager.SearchNodeById(16)->GetAsAtkTextNode();
+        if (textNode == null) return false;
+
+        var text = new ReadOnlySeString(textNode->NodeText);
+        if (string.IsNullOrWhiteSpace(text.ToString())) return false;
+        ChatManager.Instance().SendMessage(text);
+
+        var inputComponent = (AtkComponentTextInput*)inputNode->Component;
+        inputComponent->EvaluatedString.Clear();
+        inputComponent->RawString.Clear();
+        inputComponent->AvailableLines.Clear();
+        inputComponent->HighlightedAutoTranslateOptionColorPrefix.Clear();
+        inputComponent->HighlightedAutoTranslateOptionColorSuffix.Clear();
+        textNode->NodeText.Clear();
+
+        chatPanelAddon?.Close();
+        return true;
+    }
+
+    private static void CopyText(string text)
+    {
+        ImGui.SetClipboardText(text);
+        NotifyHelper.Instance().NotificationSuccess($"{Lang.Get("CopiedToClipboard")}: {text}");
+    }
+
+    private void SendSavedMessage(string message)
+    {
+        ChatManager.Instance().SendMessage(message);
+        chatPanelAddon?.Close();
+    }
+
+    private void ExecuteMacro(SavedMacro macro)
+    {
+        var gameMacro = RaptureMacroModule.Instance()->GetMacro(macro.Category, (uint)macro.Position);
+
+        RaptureShellModule.Instance()->ExecuteMacro(gameMacro);
+        chatPanelAddon?.Close();
+    }
+
+    private static void SendGameItemLink(Item item)
+    {
+        // TODO: 改成 ReadOnlyString, 这个等 API 16
+        NotifyHelper.Instance().Chat
+        (
+            new SeStringBuilder()
+                .AddItemLink(item.RowId, PluginConfig.Instance().ConflictKeyBinding.IsPressed())
+                .Build()
+                .Encode()
+        );
+    }
+
+    private class Config : ModuleConfig
+    {
+        public MacroDisplayMode         OverlayMacroDisplayMode = MacroDisplayMode.Buttons;
+        public Vector2                  OverlayOffset           = new(0);
+        public QuickChatTab             SelectedTab             = QuickChatTab.Messages;
+        public List<SavedMacro>         SavedMacros             = [];
+        public List<string>             SavedMessages           = [];
+        public Dictionary<uint, string> SoundEffectNotes        = [];
+    }
+
+    private class QuickChatPanelAddon : AttachedAddon
+    {
+        private readonly Dictionary<QuickChatTab, ListButtonNode>    tabButtons      = [];
+        private readonly Dictionary<QuickChatTab, ResNode>           tabRoots        = [];
+        private readonly Dictionary<QuickChatTab, ScrollingListNode> tabContentLists = [];
+        private readonly LuminaSearcher<Item>                        searcher;
+        private readonly QuickChatPanel                              instance;
+        private readonly TaskHelper                                  TaskHelper = new();
+
+        private QuickChatTab         selectedTab;
+        private SimpleComponentNode? contentPanel;
+        private SimpleNineGridNode?  contentPanelBackground;
+        private Vector2              tabContentSize;
+
+        private string itemSearchInput = string.Empty;
+
+        public QuickChatPanelAddon(QuickChatPanel instance) : base("ChatLog")
+        {
+            this.instance = instance;
+            selectedTab = Enum.IsDefined(instance.config.SelectedTab)
+                              ? instance.config.SelectedTab
+                              : QuickChatTab.Messages;
+            searcher = new
+            (
+                LuminaGetter.Get<Item>(),
+                [
+                    x => x.Name.ToString(),
+                    x => x.Description.ToString(),
+                    x => x.RowId.ToString()
+                ],
+                resultLimit: 50
+            );
+        }
+
+        protected override AttachedAddonPosition AttachPosition =>
+            AttachedAddonPosition.RightBottom;
+
+        protected override Vector2 PositionOffset =>
+            instance.config.OverlayOffset + new Vector2(0, -28f);
+
+        protected override bool CanOpenAddon =>
+            false;
+
+        public void TogglePanel()
+        {
+            if (IsOpen)
+            {
+                Close();
+                return;
+            }
+
+            Open();
+        }
+
+        protected override bool CanCloseHostAddon(AtkUnitBase* hostAddon) =>
+            false;
+
+        protected override void OnAttachedAddonUpdate(AtkUnitBase* addon, AtkUnitBase* hostAddon)
+        {
+            if (DService.Instance().KeyState[VirtualKey.ESCAPE]) Close();
+
+        }
+
+        protected override void OnSetup(AtkUnitBase* addon, Span<AtkValue> atkValues)
+        {
+            tabButtons.Clear();
+            tabRoots.Clear();
+            tabContentLists.Clear();
+            itemSearchInput = string.Empty;
+
+            var body = new HorizontalListNode
+            {
+                IsVisible   = true,
+                Position    = ContentStartPosition,
+                Size        = ContentSize,
+                ItemSpacing = 8f,
+                FitHeight   = true
+            };
+
+            var nav = new VerticalListNode
+            {
+                IsVisible   = true,
+                Size        = new(108f, body.Height),
+                ItemSpacing = 5f,
+                FitWidth    = true
+            };
+            nav.AddNode(CreateNavButton(QuickChatTab.Messages,         Lang.Get("QuickChatPanel-Messages")));
+            nav.AddNode(CreateNavButton(QuickChatTab.Macros,           Lang.Get("QuickChatPanel-Macro")));
+            nav.AddNode(CreateNavButton(QuickChatTab.SystemSounds,     Lang.Get("QuickChatPanel-SystemSound")));
+            nav.AddNode(CreateNavButton(QuickChatTab.GameItems,        Lang.Get("QuickChatPanel-GameItems")));
+            nav.AddNode(CreateNavButton(QuickChatTab.SpecialIconChars, Lang.Get("QuickChatPanel-SpecialIconChar")));
+
+            nav.AddDummy(8f);
+            nav.AddNode(CreateNavButton(QuickChatTab.Settings, Lang.Get("Settings")));
+
+            var contentSize = new Vector2(ContentSize.X - nav.Width - 16f, body.Height - 16f);
+            tabContentSize = contentSize;
+
+            contentPanel = new SimpleComponentNode
+            {
+                IsVisible = true,
+                Size      = contentSize
+            };
+
+            contentPanelBackground = new SimpleNineGridNode
+            {
+                IsVisible          = true,
+                TexturePath        = "ui/uld/ToolTipS.tex",
+                TextureCoordinates = Vector2.Zero,
+                TextureSize        = new(32f, 24f),
+                TopOffset          = 10f,
+                BottomOffset       = 10f,
+                LeftOffset         = 12f,
+                RightOffset        = 12f,
+                Size               = contentSize + new Vector2(12f),
+                Alpha              = 0.42f
+            };
+            contentPanelBackground.AttachNode(contentPanel);
+
+            body.AddNode(nav);
+            body.AddNode(contentPanel);
+
+            RefreshTabButtons();
+
+            body.AttachNode(this);
+
+            ShowTab(selectedTab);
+        }
+
+        public override void Dispose()
+        {
+            TaskHelper.Dispose();
+            base.Dispose();
+        }
+
+        private void SelectTab(QuickChatTab tab)
+        {
+            if (selectedTab == tab) return;
+
+            selectedTab                 = tab;
+            instance.config.SelectedTab = tab;
+            instance.config.Save(instance);
+            RefreshTabButtons();
+            ShowTab(tab);
+        }
+
+        private void RefreshTabButtons()
+        {
+            foreach (var (tab, button) in tabButtons)
+                button.Selected = tab == selectedTab;
+        }
+
+        private void EnsureTabBuilt(QuickChatTab tab)
+        {
+            if (tabRoots.ContainsKey(tab)) return;
+            if (contentPanel == null) return;
+
+            var tabRoot = new ResNode
+            {
+                IsVisible = false,
+                Size      = tabContentSize
+            };
+            tabRoot.AttachNode(contentPanel);
+
+            var contentList = new ScrollingListNode
+            {
+                IsVisible         = true,
+                Position          = new(9f),
+                Size              = tabContentSize - new Vector2(8f, 12f),
+                ItemSpacing       = 5f,
+                FitWidth          = true,
+                AutoHideScrollBar = true,
+                ScrollSpeed       = 36
+            };
+            contentList.AttachNode(tabRoot);
+
+            tabRoots[tab]        = tabRoot;
+            tabContentLists[tab] = contentList;
+
+            BuildTab(tab, contentList);
+            contentList.RecalculateLayout();
+        }
+
+        private void BuildTab(QuickChatTab tab, ScrollingListNode contentList)
+        {
+            switch (tab)
+            {
+                case QuickChatTab.Messages:
+                    BuildMessagesTab(contentList);
+                    break;
+                case QuickChatTab.Macros:
+                    BuildMacrosTab(contentList);
+                    break;
+                case QuickChatTab.SystemSounds:
+                    BuildSystemSoundsTab(contentList);
+                    break;
+                case QuickChatTab.GameItems:
+                    BuildGameItemsTab(contentList);
+                    break;
+                case QuickChatTab.SpecialIconChars:
+                    BuildSpecialIconCharsTab(contentList);
+                    break;
+                case QuickChatTab.Settings:
+                    BuildSettingsTab(contentList);
+                    break;
+            }
+        }
+
+        private void ShowTab(QuickChatTab tab)
+        {
+            TaskHelper.Enqueue
+            (() =>
+                {
+                    EnsureTabBuilt(tab);
+
+                    foreach (var (otherTab, root) in tabRoots)
+                        root.IsVisible = otherTab == tab;
+                }
+            );
+        }
+
+        private ListButtonNode CreateNavButton(QuickChatTab tab, string text)
+        {
+            var button = new ListButtonNode
+            {
+                IsVisible   = true,
+                IsEnabled   = true,
+                Size        = new(116f, 34f),
+                String      = text,
+                TextTooltip = text,
+                OnClick     = () => SelectTab(tab)
+            };
+
+            button.LabelNode.FontSize = 15;
+            button.LabelNode.AutoAdjustTextSize();
+            tabButtons[tab] = button;
+            return button;
+        }
+
+        private void BuildMessagesTab(ScrollingListNode contentList)
+        {
+            if (instance.config.SavedMessages.Count == 0)
+            {
+                AddEmptyState(contentList, Lang.Get("QuickChatPanel-SavedMessagesAmountText", 0), Lang.Get("QuickChatPanel-SendMessageHelp"));
+                return;
+            }
+
+            foreach (var message in instance.config.SavedMessages)
+            {
+                contentList.AddNode
+                (
+                    CreateTextActionRow
+                    (
+                        contentList,
+                        message,
+                        Lang.Get("QuickChatPanel-SendMessageHelp"),
+                        () => CopyText(message),
+                        (_, _, _, _, data) =>
+                        {
+                            if (data->IsRightClick) instance.SendSavedMessage(message);
+                            else if (data->IsLeftClick)
+                                CopyText(message);
+                        }
+                    )
+                );
+            }
+        }
+
+        private void BuildMacrosTab(ScrollingListNode contentList)
+        {
+            if (instance.config.SavedMacros.Count == 0)
+            {
+                AddEmptyState(contentList, Lang.Get("QuickChatPanel-SavedMacrosAmountText", 0), Lang.Get("QuickChatPanelTitle-DragHelp"));
+                return;
+            }
+
+            if (instance.config.OverlayMacroDisplayMode == MacroDisplayMode.List)
+                BuildMacroList(contentList);
+            else
+                BuildMacroButtonGrid(contentList);
+        }
+
+        private void BuildMacroList(ScrollingListNode contentList)
+        {
+            foreach (var macro in instance.config.SavedMacros)
+            {
+                if (string.IsNullOrWhiteSpace(macro.Name)) continue;
+
+                contentList.AddNode
+                (
+                    CreateMacroListButton
+                    (
+                        macro.IconID,
+                        macro.Name,
+                        (_, _, _, _, _) => instance.ExecuteMacro(macro)
+                    )
+                );
+            }
+
+            return;
+
+            TextButtonNode CreateMacroListButton
+            (
+                uint                                     iconID,
+                string                                   title,
+                AtkEventListener.Delegates.ReceiveEvent? onMouseClick = null
+            )
+            {
+                var button = new TextButtonNode
+                {
+                    IsVisible   = true,
+                    IsEnabled   = true,
+                    Size        = new(contentList.ContentWidth, 52f),
+                    String      = string.Empty,
+                    TextTooltip = title
+                };
+
+                button.LabelNode.IsVisible = false;
+
+                var icon = new IconImageNode
+                {
+                    IsVisible   = true,
+                    Size        = new(28f),
+                    TextureSize = new(28f),
+                    IconId      = iconID,
+                    FitTexture  = true
+                };
+
+                icon.Position = new(12f, ((button.Size.Y - icon.Size.Y) / 2) - 2f);
+                icon.AttachNode(button);
+
+                var text = new TextNode
+                {
+                    IsVisible     = true,
+                    Position      = new(icon.Position.X + icon.Size.X + 6f, 0f),
+                    String        = title,
+                    AlignmentType = AlignmentType.Left,
+                    FontSize      = 14,
+                    TextFlags     = TextFlags.Bold
+                };
+
+                text.Size = new(button.Size.X - text.Position.X, 46f);
+                text.AttachNode(button);
+
+                if (onMouseClick != null)
+                    button.AddEvent(AtkEventType.MouseClick, onMouseClick);
+
+                return button;
+            }
+        }
+
+        private void BuildMacroButtonGrid(ScrollingListNode contentList)
+        {
+            var row          = CreateCardRow(contentList);
+            var currentWidth = 0f;
+
+            foreach (var macro in instance.config.SavedMacros)
+            {
+                if (string.IsNullOrWhiteSpace(macro.Name)) continue;
+
+                var button = CreateMacroCardButton(macro.IconID, macro.Name, () => instance.ExecuteMacro(macro));
+
+                if (currentWidth + button.Width > contentList.ContentWidth)
+                {
+                    contentList.AddNode(row);
+                    row          = CreateCardRow(contentList);
+                    currentWidth = 0f;
+                }
+
+                row.AddNode(button);
+                currentWidth += button.Width;
+            }
+
+            if (row.Nodes.Count > 0)
+                contentList.AddNode(row);
+
+            return;
+
+            TextButtonNode CreateMacroCardButton(uint iconID, string text, Action onClick)
+            {
+                var button = new TextButtonNode
+                {
+                    IsVisible   = true,
+                    IsEnabled   = true,
+                    Size        = new(110f, 110f),
+                    String      = string.Empty,
+                    TextTooltip = text,
+                    OnClick     = onClick
+                };
+
+                button.LabelNode.IsVisible = false;
+
+                var icon = new IconImageNode
+                {
+                    IsVisible  = true,
+                    Size       = new(50f),
+                    IconId     = iconID,
+                    FitTexture = true
+                };
+                icon.Position = new((button.Size.X - icon.Size.X) / 2, 14f);
+
+                icon.AttachNode(button);
+
+                new TextNode
+                {
+                    IsVisible     = true,
+                    Position      = new(0f, 64f),
+                    Size          = new(button.Width, 24f),
+                    String        = text,
+                    AlignmentType = AlignmentType.Center,
+                    FontSize      = 12,
+                    TextFlags     = TextFlags.Bold
+                }.AttachNode(button);
+
+                return button;
+            }
+        }
+
+        private void BuildSystemSoundsTab(ScrollingListNode contentList)
+        {
+            var row          = CreateCompactRow(contentList);
+            var currentWidth = 0f;
+
+            foreach (var (key, value) in instance.config.SoundEffectNotes.OrderBy(x => x.Key))
+            {
+                var button = CreateCompactTextButton
+                (
+                    value,
+                    Lang.Get("QuickChatPanel-SystemSoundHelp"),
+                    () => UIGlobals.PlayChatSoundEffect(key),
+                    (_, _, _, _, data) =>
+                    {
+                        if (data->MouseData.ButtonId == 1)
+                        {
+                            ChatManager.Instance().SendMessage($"<se.{key}><se.{key}>");
+                            return;
+                        }
+
+                        UIGlobals.PlayChatSoundEffect(key);
+                    }
+                );
+
+                if (currentWidth + button.Width > contentList.ContentWidth)
+                {
+                    contentList.AddNode(row);
+                    row          = CreateCompactRow(contentList);
+                    currentWidth = 0f;
+                }
+
+                row.AddNode(button);
+                currentWidth += button.Width;
+            }
+
+            if (row.Nodes.Count > 0)
+                contentList.AddNode(row);
+        }
+
+        private void BuildGameItemsTab(ScrollingListNode contentList)
+        {
+            var listNode = new ListNode<Item, ItemListItemNode>
+            {
+                IsVisible   = true,
+                Size        = new(contentList.ContentWidth, contentList.Size.Y - 48f),
+                ItemSpacing = 4f,
+                OptionsList = GetGameItemResults(),
+                OnItemSelected = item =>
+                {
+                    if (item.RowId != 0)
+                        SendGameItemLink(item);
+                }
+            };
+
+            var searchBarNode = new TextInputNode
+            {
+                IsVisible       = true,
+                Size            = new(contentList.ContentWidth, 36f),
+                String          = itemSearchInput,
+                MaxCharacters   = 128,
+                OnInputReceived = text => UpdateGameItemList(listNode, text.ToString()),
+                OnInputComplete = text => UpdateGameItemList(listNode, text.ToString())
+            };
+
+            searchBarNode.CurrentTextNode.FontSize =  14;
+            searchBarNode.CurrentTextNode.Position += new Vector2(0, 3);
+            contentList.AddNode(searchBarNode);
+
+            contentList.AddNode(listNode);
+
+            return;
+
+            List<Item> GetGameItemResults()
+            {
+                return string.IsNullOrWhiteSpace(itemSearchInput) ? [] : searcher.SearchResult;
+            }
+
+            void UpdateGameItemList(ListNode<Item, ItemListItemNode> node, string searchString)
+            {
+                itemSearchInput = searchString;
+                searcher.Search(itemSearchInput);
+                node.OptionsList = GetGameItemResults();
+                node.ResetScroll();
+            }
+        }
+
+        private static void BuildSpecialIconCharsTab(ScrollingListNode contentList)
+        {
+            var row          = CreateGlyphRow();
+            var currentWidth = 0f;
+
+            foreach (var icon in SeIconChars)
+            {
+                var text = icon.ToString();
+
+                var button = CreateGlyphButton(text, $"0x{(int)icon:X4}", () => CopyText(text));
+
+                if (currentWidth + button.Width > contentList.ContentWidth)
+                {
+                    contentList.AddNode(row);
+                    row          = CreateGlyphRow();
+                    currentWidth = 0f;
+                }
+
+                row.AddNode(button);
+                currentWidth += button.Width;
+            }
+
+            if (row.Nodes.Count > 0)
+                contentList.AddNode(row);
+
+            return;
+
+            HorizontalListNode CreateGlyphRow()
+            {
+                return new HorizontalListNode
+                {
+                    IsVisible          = true,
+                    Size               = new(contentList.ContentWidth, 36f),
+                    ItemSpacing        = 4f,
+                    FirstItemSpacing   = 0f,
+                    FitToContentHeight = true
+                };
+            }
+
+            TextButtonNode CreateGlyphButton(string text, string tooltip, Action onClick)
+            {
+                var button = new TextButtonNode
+                {
+                    IsVisible   = true,
+                    IsEnabled   = true,
+                    Size        = new(48f, 32f),
+                    String      = text,
+                    TextTooltip = tooltip,
+                    OnClick     = onClick
+                };
+
+                button.LabelNode.FontSize = 18;
+                return button;
+            }
+        }
+
+        private void BuildSettingsTab(ScrollingListNode contentList)
+        {
+            var contentWidth = contentList.ContentWidth;
+
+            TreeListNode? tree = null;
+            tree = new()
+            {
+                IsVisible               = true,
+                Size                    = new(contentWidth, 0f),
+                CategoryVerticalSpacing = 5f
+            };
+            tree.OnLayoutUpdate = height =>
+            {
+                if (tree == null) return;
+
+                tree.Height = height;
+                contentList.RecalculateLayout();
+            };
+
+            var generalOverlay = new VerticalListNode
+            {
+                IsVisible        = true,
+                Size             = new(contentWidth, 0f),
+                FitContents      = true,
+                FitWidth         = true,
+                ItemSpacing      = 5f,
+                FirstItemSpacing = 10f
+            };
+
+            generalOverlay.AddNode
+            (
+                new TextNode
+                {
+                    IsVisible     = true,
+                    Size          = new(contentWidth, 22f),
+                    String        = Lang.Get("Offset"),
+                    FontSize      = 13,
+                    AlignmentType = AlignmentType.Left
+                }
+            );
+
+            var offsetRow = new HorizontalListNode
+            {
+                IsVisible          = true,
+                Size               = new(contentWidth, 34f),
+                ItemSpacing        = 6f,
+                FirstItemSpacing   = 0f,
+                FitToContentHeight = true
+            };
+            offsetRow.AddNode
+            (
+                OffsetInput
+                (
+                    "X",
+                    (int)instance.config.OverlayOffset.X,
+                    value => instance.config.OverlayOffset = instance.config.OverlayOffset with { X = value }
+                )
+            );
+            offsetRow.AddNode
+            (
+                OffsetInput
+                (
+                    "Y",
+                    (int)instance.config.OverlayOffset.Y,
+                    value => instance.config.OverlayOffset = instance.config.OverlayOffset with { Y = value }
+                )
+            );
+            generalOverlay.AddNode(offsetRow);
+
+            tree.AddCategoryNode
+            (
+                new TreeListCategoryNode
+                {
+                    IsVisible = true,
+                    Size      = new(contentWidth, 28f),
+                    String    = Lang.Get("General")
+                }
+            );
+            tree.CategoryNodes[^1].AddNode(generalOverlay);
+
+            var messagesSection = new VerticalListNode
+            {
+                IsVisible   = true,
+                Size        = new(contentWidth, 0f),
+                FitContents = true,
+                FitWidth    = true,
+                ItemSpacing = 5f
+            };
+
+            var messageRow = new HorizontalListNode
+            {
+                IsVisible          = true,
+                Size               = new(contentWidth, 36f),
+                ItemSpacing        = 6f,
+                FirstItemSpacing   = 0f,
+                FitToContentHeight = true
+            };
+
+            var messageInputNode = new TextInputNode
+            {
+                IsVisible     = true,
+                Size          = new(contentWidth - 84f, 32f),
+                MaxCharacters = 1000
+            };
+            messageRow.AddNode(messageInputNode);
+
+            var addMessageButton = new TextButtonNode
+            {
+                IsVisible = true,
+                IsEnabled = true,
+                Size      = new(78f, 32f),
+                String    = Lang.Get("Add"),
+                OnClick = () =>
+                {
+                    var text = messageInputNode.String.ToString();
+                    if (string.IsNullOrWhiteSpace(text) ||
+                        instance.config.SavedMessages.Contains(text))
+                        return;
+
+                    instance.config.SavedMessages.Add(text);
+                    instance.config.Save(instance);
+
+                    AtkStage.Instance()->ClearFocus();
+                }
+            };
+            addMessageButton.LabelNode.AutoAdjustTextSize();
+            messageRow.AddNode(addMessageButton);
+            messagesSection.AddNode(messageRow);
+
+            foreach (var message in instance.config.SavedMessages.ToList())
+            {
+                var row = new HorizontalListNode
+                {
+                    IsVisible          = true,
+                    Size               = new(contentWidth, 34f),
+                    ItemSpacing        = 6f,
+                    FirstItemSpacing   = 0f,
+                    FitToContentHeight = true
+                };
+                row.AddNode
+                (
+                    new TextNode
+                    {
+                        IsVisible     = true,
+                        Size          = new(contentWidth - 86f, 30f),
+                        String        = message,
+                        AlignmentType = AlignmentType.Left,
+                        FontSize      = 14
+                    }
+                );
+                var button = new TextButtonNode
+                {
+                    IsVisible = true,
+                    IsEnabled = true,
+                    Size      = new(80f, 30f),
+                    String    = Lang.Get("Delete"),
+                    OnClick = () =>
+                    {
+                        instance.config.SavedMessages.Remove(message);
+                        instance.config.Save(instance);
+                    }
+                };
+                button.LabelNode.AutoAdjustTextSize();
+                row.AddNode(button);
+                messagesSection.AddNode(row);
+            }
+
+            tree.AddCategoryNode
+            (
+                new TreeListCategoryNode
+                {
+                    IsVisible   = true,
+                    Size        = new(contentWidth, 28f),
+                    String      = Lang.Get("QuickChatPanel-Messages"),
+                    IsCollapsed = true
+                }
+            );
+            tree.CategoryNodes[^1].AddNode(messagesSection);
+
+            var macrosSection = new VerticalListNode
+            {
+                IsVisible        = true,
+                Size             = new(contentWidth, 0f),
+                FitContents      = true,
+                FitWidth         = true,
+                ItemSpacing      = 5f,
+                FirstItemSpacing = 10f
+            };
+
+            macrosSection.AddNode
+            (
+                new TextNode
+                {
+                    IsVisible     = true,
+                    Size          = new(contentWidth, 22f),
+                    String        = Lang.Get("QuickChatPanel-MacroButton-DisplayType"),
+                    FontSize      = 13,
+                    AlignmentType = AlignmentType.Left
+                }
+            );
+
+            var dropdown = new TextDropDownNode
+            {
+                IsVisible      = true,
+                Size           = new(contentWidth, 30f),
+                MaxListOptions = MacroDisplayModeLoc.Count,
+                Options        = MacroDisplayModeLoc.Values.ToList()
+            };
+            dropdown.SelectedOption = MacroDisplayModeLoc[instance.config.OverlayMacroDisplayMode];
+            dropdown.OnOptionSelected = text =>
+            {
+                var mode = MacroDisplayModeLoc.FirstOrDefault(x => x.Value == text).Key;
+                if (mode == instance.config.OverlayMacroDisplayMode) return;
+
+                instance.config.OverlayMacroDisplayMode = mode;
+                instance.config.Save(instance);
+            };
+            macrosSection.AddNode(dropdown);
+
+            macrosSection.AddDummy(5f);
+
+            AddMacroSection(true);
+            AddMacroSection(false);
+
+            tree.AddCategoryNode
+            (
+                new TreeListCategoryNode
+                {
+                    IsVisible   = true,
+                    Size        = new(contentWidth, 28f),
+                    String      = Lang.Get("QuickChatPanel-Macro"),
+                    IsCollapsed = true
+                }
+            );
+            tree.CategoryNodes[^1].AddNode(macrosSection);
+
+            var sounds = new VerticalListNode
+            {
+                IsVisible   = true,
+                Size        = new(contentWidth, 0f),
+                FitContents = true,
+                FitWidth    = true,
+                ItemSpacing = 5f
+            };
+
+            foreach (var (key, value) in instance.config.SoundEffectNotes.OrderBy(x => x.Key))
+            {
+                var row = new HorizontalListNode
+                {
+                    IsVisible          = true,
+                    Size               = new(contentWidth, 34f),
+                    ItemSpacing        = 6f,
+                    FirstItemSpacing   = 0f,
+                    FitToContentHeight = true
+                };
+                row.AddNode
+                (
+                    new TextNode
+                    {
+                        IsVisible     = true,
+                        Size          = new(58f, 30f),
+                        String        = $"<se.{key}>",
+                        AlignmentType = AlignmentType.Left,
+                        FontSize      = 14
+                    }
+                );
+
+                var input = new TextInputNode
+                {
+                    IsVisible     = true,
+                    Size          = new(contentWidth - 64f, 30f),
+                    String        = value,
+                    MaxCharacters = 32
+                };
+                input.OnInputReceived          = text => instance.config.SoundEffectNotes[key] = text.ToString();
+                input.OnInputComplete          = text => SaveSoundEffectNote(key, text.ToString());
+                input.OnFocusLost              = () => SaveSoundEffectNote(key,   input.String.ToString());
+                input.CurrentTextNode.FontSize = 14;
+                row.AddNode(input);
+                sounds.AddNode(row);
+            }
+
+            tree.AddCategoryNode
+            (
+                new TreeListCategoryNode
+                {
+                    IsVisible   = true,
+                    Size        = new(contentWidth, 28f),
+                    String      = Lang.Get("QuickChatPanel-SystemSound"),
+                    IsCollapsed = true
+                }
+            );
+            tree.CategoryNodes[^1].AddNode(sounds);
+
+            contentList.AddNode(tree);
+            tree.RefreshLayout();
+            return;
+
+            void AddMacroSection(bool isIndividual)
+            {
+                var module = RaptureMacroModule.Instance();
+
+                macrosSection.AddNode
+                (
+                    new TextNode
+                    {
+                        IsVisible     = true,
+                        Size          = new(contentWidth, 22f),
+                        String        = Lang.Get($"QuickChatPanel-{(isIndividual ? "Individual" : "Shared")}Macros"),
+                        FontSize      = 13,
+                        AlignmentType = AlignmentType.Left
+                    }
+                );
+                var span = isIndividual ? module->Individual : module->Shared;
+
+                for (var i = 0; i < span.Length; i++)
+                {
+                    var macro = span.GetPointer(i);
+                    if (macro == null) continue;
+
+                    var name = macro->Name.ToString();
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    var savedMacro = (*macro).ToSavedMacro();
+                    savedMacro.Position = i;
+                    savedMacro.Category = isIndividual ? 0U : 1U;
+                    macrosSection.AddNode(MacroRow(savedMacro));
+                }
+            }
+
+            HorizontalListNode MacroRow(SavedMacro macro)
+            {
+                var isSaved = instance.config.SavedMacros.Contains(macro);
+                var row = new HorizontalListNode
+                {
+                    IsVisible          = true,
+                    Size               = new(contentWidth, 42f),
+                    ItemSpacing        = 6f,
+                    FirstItemSpacing   = 0f,
+                    FitToContentHeight = true
+                };
+
+                var info = new SimpleComponentNode
+                {
+                    IsVisible = true,
+                    Size      = new(contentWidth - (isSaved ? 172f : 86f), 38f)
+                };
+
+                new IconImageNode
+                {
+                    IsVisible  = true,
+                    Position   = new(4f, 4f),
+                    Size       = new(28f),
+                    IconId     = macro.IconID,
+                    FitTexture = true
+                }.AttachNode(info);
+
+                new TextNode
+                {
+                    IsVisible     = true,
+                    Position      = new(38f, 0f),
+                    Size          = new(info.Width - 42f, 36f),
+                    String        = macro.Name,
+                    AlignmentType = AlignmentType.Left,
+                    FontSize      = 14,
+                    TextFlags     = TextFlags.Bold
+                }.AttachNode(info);
+                row.AddNode(info);
+
+                if (isSaved)
+                {
+                    var refreshButton = new TextButtonNode
+                    {
+                        IsVisible   = true,
+                        IsEnabled   = true,
+                        Size        = new(80f, 34f),
+                        String      = Lang.Get("Refresh"),
+                        TextTooltip = $"{Lang.Get("QuickChatPanel-LastUpdateTime")}: {instance.config.SavedMacros.Find(x => x.Equals(macro))?.LastUpdateTime}"
+                    };
+                    refreshButton.OnClick = () =>
+                    {
+                        var currentIndex = instance.config.SavedMacros.IndexOf(macro);
+                        if (currentIndex < 0) return;
+
+                        instance.config.SavedMacros[currentIndex] = macro;
+                        instance.config.Save(instance);
+                    };
+                    refreshButton.LabelNode.AutoAdjustTextSize();
+                    row.AddNode(refreshButton);
+                }
+
+                var toggleButton = new TextButtonNode
+                {
+                    IsVisible = true,
+                    IsEnabled = true,
+                    Size      = new(80f, 34f),
+                    String    = Lang.Get(isSaved ? "Delete" : "Add")
+                };
+                toggleButton.OnClick = () =>
+                {
+                    if (!instance.config.SavedMacros.Remove(macro))
+                        instance.config.SavedMacros.Add(macro);
+
+                    instance.config.Save(instance);
+                };
+                toggleButton.LabelNode.AutoAdjustTextSize();
+                row.AddNode(toggleButton);
+                return row;
+            }
+
+            void SaveSoundEffectNote(uint key, string value)
+            {
+                if (instance.config.SoundEffectNotes.GetValueOrDefault(key) == value) return;
+
+                instance.config.SoundEffectNotes[key] = value;
+                instance.config.Save(instance);
+            }
+
+            HorizontalListNode OffsetInput(string label, int value, Action<int> updateValue)
+            {
+                var row = new HorizontalListNode
+                {
+                    IsVisible          = true,
+                    Size               = new(154f, 32f),
+                    ItemSpacing        = 4f,
+                    FirstItemSpacing   = 0f,
+                    FitToContentHeight = true
+                };
+
+                row.AddNode
+                (
+                    new TextNode
+                    {
+                        IsVisible     = true,
+                        Position      = new(0, 2),
+                        Size          = new(18f, 20f),
+                        TextFlags     = TextFlags.AutoAdjustNodeSize,
+                        String        = label,
+                        AlignmentType = AlignmentType.Left,
+                        FontSize      = 14
+                    }
+                );
+
+                var input = new TextInputNode
+                {
+                    IsVisible = true,
+                    Size      = new(132f, 30f),
+                    Position  = new(0, -4),
+                    String    = value.ToString()
+
+                };
+                input.CurrentTextNode.FontSize = 14;
+                input.OnFocusLost = () =>
+                {
+                    if (!int.TryParse(input.String, out var newValue)) return;
+
+                    updateValue(newValue);
+                    instance.config.Save(instance);
+                };
+                row.AddNode(input);
+                return row;
+            }
+        }
+
+        private static void AddEmptyState(ScrollingListNode contentList, string text, string? detail = null)
+        {
+            var state = new VerticalListNode
+            {
+                IsVisible   = true,
+                Size        = new(contentList.ContentWidth, 72f),
+                ItemSpacing = 2f,
+                FitWidth    = true
+            };
+
+            state.AddNode
+            (
+                new TextNode
+                {
+                    IsVisible     = true,
+                    Size          = new(contentList.ContentWidth, 30f),
+                    String        = text,
+                    FontSize      = 16,
+                    TextColor     = ColorHelper.GetColor(3),
+                    AlignmentType = AlignmentType.Center
+                }
+            );
+
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                state.AddNode
+                (
+                    new TextNode
+                    {
+                        IsVisible     = true,
+                        Size          = new(contentList.ContentWidth, 24f),
+                        String        = detail,
+                        TextColor     = ColorHelper.GetColor(3),
+                        AlignmentType = AlignmentType.Center
+                    }
+                );
+            }
+
+            contentList.AddNode(state);
+        }
+
+        private static HorizontalListNode CreateCardRow(ScrollingListNode contentList) =>
+            new()
+            {
+                IsVisible          = true,
+                Size               = new(contentList.ContentWidth, 82f),
+                ItemSpacing        = 8f,
+                FirstItemSpacing   = 0f,
+                FitToContentHeight = true
+            };
+
+        private static HorizontalListNode CreateCompactRow(ScrollingListNode contentList) =>
+            new()
+            {
+                IsVisible          = true,
+                Size               = new(contentList.ContentWidth, 38f),
+                ItemSpacing        = 6f,
+                FirstItemSpacing   = 0f,
+                FitToContentHeight = true
+            };
+
+        private static TextButtonNode CreateTextActionRow
+        (
+            ScrollingListNode                        contentList,
+            string                                   text,
+            string                                   tooltip,
+            Action                                   onClick,
+            AtkEventListener.Delegates.ReceiveEvent? onMouseClick = null
+        )
+        {
+            var button = new TextButtonNode
+            {
+                IsVisible   = true,
+                IsEnabled   = true,
+                Size        = new(contentList.ContentWidth, 32f),
+                String      = text,
+                TextTooltip = tooltip,
+                OnClick     = onClick
+            };
+
+            button.LabelNode.AlignmentType = AlignmentType.Left;
+            button.LabelNode.FontSize      = 14;
+
+            if (onMouseClick != null)
+                button.AddEvent(AtkEventType.MouseClick, onMouseClick);
+
+            return button;
+        }
+
+        private static TextButtonNode CreateCompactTextButton
+        (
+            string                                   text,
+            string                                   tooltip,
+            Action                                   onClick,
+            AtkEventListener.Delegates.ReceiveEvent? onMouseClick = null
+        )
+        {
+            var button = new TextButtonNode
+            {
+                IsVisible   = true,
+                IsEnabled   = true,
+                Size        = new(116f, 34f),
+                String      = text,
+                TextTooltip = tooltip,
+                OnClick     = onClick
+            };
+
+            button.LabelNode.AutoAdjustTextSize();
+
+            if (onMouseClick != null)
+                button.AddEvent(AtkEventType.MouseClick, onMouseClick);
+
+            return button;
+        }
     }
 
     public class SavedMacro : IEquatable<SavedMacro>
@@ -593,322 +1518,33 @@ public unsafe class QuickChatPanel : DailyModuleBase
     private enum MacroDisplayMode
     {
         List,
-        Buttons,
+        Buttons
     }
 
-    private class Config : ModuleConfiguration
+    private enum QuickChatTab
     {
-        public List<SavedMacro>         SavedMacros             = [];
-        public List<string>             SavedMessages           = [];
-        public Dictionary<uint, string> SoundEffectNotes        = [];
-        public int                      ButtonIcon              = 46;
-        public Vector2                  ButtonOffset            = new(0);
-        public bool                     ButtonBackgroundVisible = true;
-        public float                    FontScale               = 1.5f;
-        public float                    OverlayHeight           = 350f * GlobalFontScale;
-        public Vector2                  OverlayOffset           = new(0);
-        public MacroDisplayMode         OverlayMacroDisplayMode = MacroDisplayMode.Buttons;
+        Messages,
+        Macros,
+        SystemSounds,
+        GameItems,
+        SpecialIconChars,
+        Settings
     }
-    
-    // 消息 Tab
-    private class MessageTab(QuickChatPanel instance) : PanelTabBase(instance)
+
+    #region 常量
+
+    private static readonly FrozenDictionary<MacroDisplayMode, string> MacroDisplayModeLoc = new Dictionary<MacroDisplayMode, string>
     {
-        public override string TabName => GetLoc("QuickChatPanel-Messages");
+        [MacroDisplayMode.List]    = Lang.Get("QuickChatPanel-List"),
+        [MacroDisplayMode.Buttons] = Lang.Get("QuickChatPanel-Buttons")
+    }.ToFrozenDictionary();
 
-        public override string Tooltip => GetLoc("QuickChatPanelTitle-DragHelp");
+    private static readonly char[] SeIconChars = Enum.GetValues<SeIconChar>().Select(x => (char)x).ToArray();
 
-        public override void DrawTabContent()
-        {
-            var maxTextWidth = 300f * GlobalFontScale;
-            using (var child = ImRaii.Child("MessagesChild", ImGui.GetContentRegionAvail(), false))
-            {
-                if (!child) return;
-                
-                for (var i = 0; i < ModuleConfig.SavedMessages.Count; i++)
-                {
-                    var message = ModuleConfig.SavedMessages[i];
-
-                    var textWidth = ImGui.CalcTextSize(message).X;
-                    maxTextWidth = Math.Max(textWidth + 64,    maxTextWidth);
-                    maxTextWidth = Math.Max(300f * GlobalFontScale, maxTextWidth);
-
-                    ImGuiOm.SelectableTextCentered(message);
-
-                    if (ImGui.IsKeyDown(ImGuiKey.LeftShift))
-                    {
-                        if (ImGui.BeginDragDropSource())
-                        {
-                            if (ImGui.SetDragDropPayload("MessageReorder", [])) 
-                                DropMacroIndex = i;
-                            ImGui.TextColored(ImGuiColors.DalamudYellow, message);
-                            ImGui.EndDragDropSource();
-                        }
-
-                        if (ImGui.BeginDragDropTarget())
-                        {
-                            if (DropMacroIndex                                          >= 0 ||
-                                ImGui.AcceptDragDropPayload("MessageReorder").Handle != null)
-                            {
-                                Instance.SwapMessages(DropMacroIndex, i);
-                                DropMacroIndex = -1;
-                            }
-
-                            ImGui.EndDragDropTarget();
-                        }
-                    }
-
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Left)) 
-                        ImGui.SetClipboardText(message);
-
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right)) 
-                        ChatManager.Instance().SendMessage(message);
-
-                    ImGuiOm.TooltipHover(GetLoc("QuickChatPanel-SendMessageHelp"));
-
-                    if (i != ModuleConfig.SavedMessages.Count - 1)
-                        ImGui.Separator();
-                }
-            }
-
-            SetWindowSize(Math.Max(350f * GlobalFontScale, maxTextWidth));
-        }
-    }
-    
-    // 宏 Tab
-    private class MacroTab(QuickChatPanel instance) : PanelTabBase(instance)
-    {
-        public override string TabName => GetLoc("QuickChatPanel-Macro");
-        
-        public override string Tooltip => GetLoc("QuickChatPanelTitle-DragHelp");
-        
-        public override void DrawTabContent()
-        {
-            var maxTextWidth = 300f * GlobalFontScale;
-            using (var child = ImRaii.Child("MacroChild", ImGui.GetContentRegionAvail(), false))
-            {
-                if (!child) return;
-                
-                using (ImRaii.Group())
-                {
-                    for (var i = 0; i < ModuleConfig.SavedMacros.Count; i++)
-                    {
-                        var macro = ModuleConfig.SavedMacros[i];
-
-                        var name = macro.Name;
-                        var icon = ImageHelper.GetGameIcon(macro.IconID);
-                        if (string.IsNullOrEmpty(name) || icon == null) continue;
-
-                        switch (ModuleConfig.OverlayMacroDisplayMode)
-                        {
-                            case MacroDisplayMode.List:
-                                if (ImGuiOm.SelectableImageWithText(icon.Handle, new(24), name, false))
-                                {
-                                    var gameMacro =
-                                        RaptureMacroModule.Instance()->GetMacro(macro.Category, (uint)macro.Position);
-
-                                    RaptureShellModule.Instance()->ExecuteMacro(gameMacro);
-                                }
-
-                                break;
-                            case MacroDisplayMode.Buttons:
-                                var textSize = ImGui.CalcTextSize("六个字也行吧");
-                                var buttonSize = textSize with { Y = (textSize.Y * 2) + icon.Height };
-
-                                if (ImGuiOm.ButtonImageWithTextVertical(icon, name, buttonSize))
-                                {
-                                    var gameMacro =
-                                        RaptureMacroModule.Instance()->GetMacro(macro.Category, (uint)macro.Position);
-
-                                    RaptureShellModule.Instance()->ExecuteMacro(gameMacro);
-                                }
-
-                                break;
-                        }
-
-                        if (ImGui.IsKeyDown(ImGuiKey.LeftShift))
-                        {
-                            if (ImGui.BeginDragDropSource())
-                            {
-                                if (ImGui.SetDragDropPayload("MacroReorder", [])) 
-                                    DropMacroIndex = i;
-                                ImGui.TextColored(ImGuiColors.DalamudYellow, name);
-                                ImGui.EndDragDropSource();
-                            }
-
-                            if (ImGui.BeginDragDropTarget())
-                            {
-                                if (DropMacroIndex >= 0 ||
-                                    ImGui.AcceptDragDropPayload("MacroReorder").Handle != null)
-                                {
-                                    Instance.SwapMacros(DropMacroIndex, i);
-                                    DropMacroIndex = -1;
-                                }
-
-                                ImGui.EndDragDropTarget();
-                            }
-                        }
-
-                        switch (ModuleConfig.OverlayMacroDisplayMode)
-                        {
-                            case MacroDisplayMode.List:
-                                if (i != ModuleConfig.SavedMacros.Count - 1)
-                                    ImGui.Separator();
-
-                                break;
-                            case MacroDisplayMode.Buttons:
-                                ImGui.SameLine();
-                                if ((i + 1) % 5 == 0)     
-                                    ImGui.Dummy(new(20 * ModuleConfig.FontScale)); 
-                                break;
-                        }
-                    }
-                }
-                
-                maxTextWidth = ImGui.GetItemRectSize().X;
-            }
-
-            SetWindowSize(Math.Max(350f * GlobalFontScale, maxTextWidth));
-        }
-    }
-    
-    // 系统音 Tab
-    private class SystemSoundTab(QuickChatPanel instance) : PanelTabBase(instance)
-    {
-        public override string TabName => GetLoc("QuickChatPanel-SystemSound");
-        
-        public override void DrawTabContent()
-        {
-            var maxTextWidth = 300f * GlobalFontScale;
-            using (var child = ImRaii.Child("SystemSoundChild"))
-            {
-                if (!child) return;
-                
-                using (ImRaii.Group())
-                {
-                    foreach (var seNote in ModuleConfig.SoundEffectNotes)
-                    {
-                        ImGuiOm.ButtonSelectable($"{seNote.Value}###PlaySound{seNote.Key}");
-
-                        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
-                            UIGlobals.PlayChatSoundEffect(seNote.Key);
-
-                        if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                            ChatManager.Instance().SendMessage($"<se.{seNote.Key}><se.{seNote.Key}>");
-
-                        ImGuiOm.TooltipHover(GetLoc("QuickChatPanel-SystemSoundHelp"));
-                    }
-                }
-                
-                maxTextWidth = ImGui.GetItemRectSize().X;
-                maxTextWidth = Math.Max(300f * GlobalFontScale, maxTextWidth);
-            }
-
-            SetWindowSize(Math.Max(350f * GlobalFontScale, maxTextWidth));
-        }
-    }
-    
-    // 游戏物品 Tab
-    private class GameItemTab(QuickChatPanel instance) : PanelTabBase(instance)
-    {
-        public override string TabName => GetLoc("QuickChatPanel-GameItems");
-        
-        private static string ItemSearchInput = string.Empty;
-        
-        public override void DrawTabContent()
-        {
-            ImGui.SetNextItemWidth(-1f);
-            if (ImGui.InputTextWithHint("###GameItemSearchInput", GetLoc("PleaseSearch"), ref ItemSearchInput, 128))
-                Searcher.Search(ItemSearchInput);
-            if (ImGui.IsItemDeactivatedAfterEdit())
-                Searcher.Search(ItemSearchInput);
-            
-            var maxTextWidth = 300f * GlobalFontScale;
-            using (var child = ImRaii.Child("GameItemChild", ImGui.GetContentRegionAvail(), false))
-            {
-                if (!child) return;
-
-                ImGui.Separator();
-                
-                if (!string.IsNullOrWhiteSpace(ItemSearchInput))
-                {
-                    var longestText          = string.Empty;
-                    var isConflictKeyHolding = IsConflictKeyPressed();
-                    foreach (var data in Searcher.SearchResult)
-                    {
-                        if (!LuminaGetter.TryGetRow(data.RowId, out Item itemData)) continue;
-                        if (!DService.Instance().Texture.TryGetFromGameIcon(new(itemData.Icon, isConflictKeyHolding), out var texture)) continue;
-                        
-                        var itemName = itemData.Name.ToString();
-                        if (itemName.Length > longestText.Length)
-                            longestText = itemName;
-
-                        if (ImGuiOm.SelectableImageWithText(texture.GetWrapOrEmpty().Handle, ScaledVector2(24f), itemName, false))
-                            Chat(new SeStringBuilder().AddItemLink(itemData.RowId, isConflictKeyHolding).Build());
-                    }
-
-                    maxTextWidth = ImGui.CalcTextSize(longestText).X;
-                    maxTextWidth = Math.Max(350f * GlobalFontScale, maxTextWidth);
-                }
-            }
-
-            SetWindowSize(Math.Max(350f * GlobalFontScale, maxTextWidth));
-        }
-    }
-    
-    // 特殊图标字符 Tab
-    private class SpecialIconCharTab(QuickChatPanel instance) : PanelTabBase(instance)
-    {
-        public override string TabName => GetLoc("QuickChatPanel-SpecialIconChar");
-        
-        public override void DrawTabContent()
-        {
-            var maxTextWidth = 300f * GlobalFontScale;
-            using (var child = ImRaii.Child("SeIconChild", ImGui.GetContentRegionAvail(), false))
-            {
-                if (!child) return;
-                
-                using (ImRaii.Group())
-                {
-                    for (var i = 0; i < SeIconChars.Length; i++)
-                    {
-                        var icon = SeIconChars[i];
-
-                        if (ImGui.Button($"{icon}", new(96 * ModuleConfig.FontScale)))
-                            ImGui.SetClipboardText(icon.ToString());
-
-                        ImGuiOm.TooltipHover($"0x{(int)icon:X4}");
-
-                        ImGui.SameLine();
-                        if ((i + 1) % 7 == 0)     
-                            ImGui.Dummy(new(20 * ModuleConfig.FontScale));
-                    }
-                }
-
-                maxTextWidth = ImGui.GetItemRectSize().X;
-                maxTextWidth = Math.Max(300f * GlobalFontScale, maxTextWidth);
-            }
-
-            SetWindowSize(Math.Max(350f * GlobalFontScale, maxTextWidth));
-        }
-    }
-    
-    // Panel Tab 基类
-    private abstract class PanelTabBase(QuickChatPanel instance)
-    {
-        protected QuickChatPanel Instance { get; } = instance;
-
-        public abstract string TabName { get; }
-        
-        public virtual string Tooltip { get; } = string.Empty;
-        
-        public abstract void DrawTabContent();
-        
-        protected static void SetWindowSize(float maxTextWidth) => 
-            ImGui.SetWindowSize(new(Math.Max(350f * GlobalFontScale, maxTextWidth), ModuleConfig.OverlayHeight * GlobalFontScale));
-    }
+    #endregion
 }
 
-public static class QuickChatPanelExtensions
+static file class QuickChatPanelExtensions
 {
     public static QuickChatPanel.SavedMacro ToSavedMacro(this RaptureMacroModule.Macro macro)
     {
@@ -916,7 +1552,7 @@ public static class QuickChatPanelExtensions
         {
             Name           = macro.Name.ToString(),
             IconID         = macro.IconId,
-            LastUpdateTime = DateTime.Now
+            LastUpdateTime = StandardTimeManager.Instance().Now
         };
 
         return savedMacro;

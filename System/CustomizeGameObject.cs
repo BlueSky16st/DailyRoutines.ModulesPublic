@@ -1,57 +1,349 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Numerics;
-using System.Threading;
-using DailyRoutines.Abstracts;
-using Dalamud.Plugin.Services;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using Dalamud.Hooking;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
+using FFXIVClientStructs.FFXIV.Client.Game.Object;
+using OmenTools.Interop.Game.Models;
+using OmenTools.OmenService;
 using GameObjectStruct = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
-using ObjectKind = Dalamud.Game.ClientState.Objects.Enums.ObjectKind;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class CustomizeGameObject : DailyModuleBase
+public unsafe class CustomizeGameObject : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("CustomizeGameObjectTitle"),
-        Description = GetLoc("CustomizeGameObjectDescription"),
-        Category    = ModuleCategories.System,
+        Title       = Lang.Get("CustomizeGameObjectTitle"),
+        Description = Lang.Get("CustomizeGameObjectDescription"),
+        Category    = ModuleCategory.System,
         Author      = ["HSS"]
     };
 
     public override ModulePermission Permission { get; } = new() { NeedAuth = true };
 
-    private static Config ModuleConfig = null!;
+    private static readonly CompSig CharacterUpdateSig = new("4C 8B DC 53 48 81 EC ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 ?? ?? ?? ?? 80 89");
+    private delegate        void*   CharacterUpdateDelegate(Character* character);
+    private                 Hook<CharacterUpdateDelegate>? CharacterUpdateHook;
 
-    private static CustomizeType TypeInput  = CustomizeType.Name;
-    private static string        NoteInput  = string.Empty;
-    private static float         ScaleInput = 1f;
-    private static string        ValueInput = string.Empty;
-    private static bool          ScaleVFXInput;
+    private Config config = null!;
 
-    private static CustomizeType TypeEditInput  = CustomizeType.Name;
-    private static string        NoteEditInput  = string.Empty;
-    private static float         ScaleEditInput = 1f;
-    private static string        ValueEditInput = string.Empty;
-    private static bool          ScaleVFXEditInput;
+    private readonly Dictionary<uint, CustomizePreset>                lookupDataID          = [];
+    private readonly Dictionary<ulong, CustomizePreset>               lookupObjectID        = [];
+    private readonly Dictionary<int, CustomizePreset>                 lookupModelCharaID    = [];
+    private readonly Dictionary<int, CustomizePreset>                 lookupModelSkeletonID = [];
+    private readonly List<(byte[] NameBytes, CustomizePreset Preset)> lookupName            = [];
 
-    private static Vector2 CheckboxSize = ScaledVector2(20f);
+    private readonly Dictionary<nint, CustomizeHistoryEntry> customizeHistory = [];
 
-    private static readonly Dictionary<nint, CustomizeHistoryEntry> CustomizeHistory = [];
+    private readonly Dictionary<nint, (ulong GameObjectID, int LastCheckTick)> failureCache = [];
 
-    private static CancellationTokenSource? CancelSource;
+    private CustomizeType typeInput  = CustomizeType.Name;
+    private string        noteInput  = string.Empty;
+    private float         scaleInput = 1f;
+    private string        valueInput = string.Empty;
+    private bool          scaleVFXInput;
+
+    private CustomizeType typeEditInput  = CustomizeType.Name;
+    private string        noteEditInput  = string.Empty;
+    private float         scaleEditInput = 1f;
+    private string        valueEditInput = string.Empty;
+    private bool          scaleVFXEditInput;
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
+        config = Config.Load(this) ?? new();
+        RebuildLookupCache();
 
-        CancelSource ??= new();
-
-        FrameworkManager.Instance().Reg(OnUpdate, true, 1000);
         DService.Instance().ClientState.TerritoryChanged += OnZoneChanged;
+
+        CharacterUpdateHook ??= CharacterUpdateSig.GetHook<CharacterUpdateDelegate>(UpdateCharacterDetour);
+        CharacterUpdateHook.Enable();
     }
+
+    protected override void Uninit()
+    {
+        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
+        CharacterUpdateHook?.Disable();
+
+        if (DService.Instance().ObjectTable.LocalPlayer != null)
+            ResetAllCustomizeFromHistory();
+
+        customizeHistory.Clear();
+        failureCache.Clear();
+        ClearLookupCache();
+    }
+    
+    #region 事件
+
+    private void* UpdateCharacterDetour(Character* character)
+    {
+        if (config.CustomizePresets.Count == 0)
+            return CharacterUpdateHook.Original(character);
+
+        var ret = CharacterUpdateHook.Original(character);
+
+        ProcessCharacter(character);
+        return ret;
+    }
+
+    private void OnZoneChanged(uint u)
+    {
+        customizeHistory.Clear();
+        failureCache.Clear();
+    }
+
+    #endregion
+
+    #region 工具
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ProcessCharacter(Character* character)
+    {
+        if (character == null) return;
+
+        var addr = (nint)character;
+
+        ref var historyEntry = ref CollectionsMarshal.GetValueRefOrNullRef(customizeHistory, addr);
+
+        if (!Unsafe.IsNullRef(ref historyEntry))
+        {
+            if (MathF.Abs(character->GameObject.Scale - historyEntry.CurrentScale) > 0.1f)
+                customizeHistory.Remove(addr);
+
+            return;
+        }
+
+        ref var failureEntry = ref CollectionsMarshal.GetValueRefOrNullRef(failureCache, addr);
+
+        if (!Unsafe.IsNullRef(ref failureEntry))
+        {
+            var currentID = character->GameObject.GetGameObjectId();
+
+            if (failureEntry.GameObjectID == (ulong)currentID)
+            {
+                if (unchecked(Environment.TickCount64 - failureEntry.LastCheckTick) < THROTTLE_INTERVAL_MS)
+                    return;
+            }
+        }
+
+        CustomizePreset? match = null;
+
+        if (lookupObjectID.Count > 0)
+        {
+            var objectID = character->GameObject.GetGameObjectId();
+            if (lookupObjectID.TryGetValue(objectID, out match)) goto Apply;
+        }
+
+        // DataID (Base ID / NPC ID)
+        if (lookupDataID.Count > 0)
+        {
+            if (lookupDataID.TryGetValue(character->BaseId, out match))
+                goto Apply;
+        }
+
+        // ModelCharaID
+        if (lookupModelCharaID.Count > 0)
+        {
+            if (lookupModelCharaID.TryGetValue(character->ModelContainer.ModelCharaId, out match))
+                goto Apply;
+        }
+
+        // ModelSkeletonID
+        if (lookupModelSkeletonID.Count > 0)
+        {
+            if (lookupModelSkeletonID.TryGetValue(character->ModelContainer.ModelSkeletonId, out match))
+                goto Apply;
+        }
+
+        // Name
+        if (lookupName.Count > 0)
+        {
+            if (character->GameObject.ObjectKind == ObjectKind.Pc)
+            {
+                // 空名字跳过
+                if (character->GameObject.Name[0] == 0)
+                    goto NoMatch;
+            }
+
+            var charNamePtr = character->GameObject.Name;
+
+            foreach (var (nameBytes, preset) in lookupName)
+            {
+                if (IsNameEqual(charNamePtr, nameBytes))
+                {
+                    match = preset;
+                    goto Apply;
+                }
+            }
+        }
+
+        NoMatch:
+
+        if (Unsafe.IsNullRef(ref failureEntry))
+            failureCache[addr] = (character->GameObject.GetGameObjectId(), Environment.TickCount);
+        else
+        {
+            failureEntry.GameObjectID  = character->GameObject.GetGameObjectId();
+            failureEntry.LastCheckTick = Environment.TickCount;
+        }
+
+        return;
+
+        Apply:
+        if (!Unsafe.IsNullRef(ref failureEntry))
+            failureCache.Remove(addr);
+        ApplyPreset(character, addr, match);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsNameEqual(Span<byte> gameObjectName, byte[] presetNameBytes)
+    {
+        if (gameObjectName[presetNameBytes.Length] != 0) return false;
+        return gameObjectName.SequenceEqual(presetNameBytes);
+    }
+
+    private void ApplyPreset(Character* chara, nint addr, CustomizePreset preset)
+    {
+        var currentScale  = chara->GameObject.Scale;
+        var modifiedScale = currentScale * preset.Scale;
+
+        var entry = new CustomizeHistoryEntry(preset, currentScale, modifiedScale);
+
+        if (customizeHistory.TryAdd(addr, entry))
+        {
+            chara->GameObject.Scale = modifiedScale;
+
+            if (preset.ScaleVFX)
+                chara->GameObject.VfxScale = modifiedScale;
+
+            if (preset.Type is CustomizeType.ModelCharaID or CustomizeType.ModelSkeletonID)
+                chara->CharacterData.ModelScale = modifiedScale;
+
+            if (chara->IsReadyToDraw())
+            {
+                chara->GameObject.DisableDraw();
+                chara->GameObject.EnableDraw();
+            }
+        }
+    }
+
+    private void ResetCustomizeFromHistory(nint address)
+    {
+        if (customizeHistory.Count == 0) return;
+        if (!customizeHistory.TryGetValue(address, out var data)) return;
+
+        var gameObj = (GameObjectStruct*)address;
+        if (gameObj == null) return;
+
+        gameObj->Scale    = data.OrigScale;
+        gameObj->VfxScale = data.OrigScale;
+
+        if (gameObj->IsReadyToDraw())
+        {
+            gameObj->DisableDraw();
+            gameObj->EnableDraw();
+        }
+    }
+
+    private void ResetAllCustomizeFromHistory()
+    {
+        if (customizeHistory.Count == 0) return;
+
+        foreach (var (objectPtr, data) in customizeHistory)
+        {
+            var gameObj = (GameObjectStruct*)objectPtr;
+            if (gameObj == null) continue;
+
+            gameObj->Scale    = data.OrigScale;
+            gameObj->VfxScale = data.OrigScale;
+
+            if (gameObj->IsReadyToDraw())
+            {
+                gameObj->DisableDraw();
+                gameObj->EnableDraw();
+            }
+        }
+    }
+
+    private void RemovePresetHistory(CustomizePreset? preset)
+    {
+        var keysToRemove = customizeHistory
+                           .Where(x => x.Value.Preset == preset)
+                           .Select(x => x.Key)
+                           .ToList();
+
+        foreach (var key in keysToRemove)
+        {
+            ResetCustomizeFromHistory(key);
+            customizeHistory.Remove(key);
+        }
+    }
+
+    private void RebuildLookupCache()
+    {
+        ClearLookupCache();
+        // 重建缓存时，清除所有运行时状态，以确保新规则能立即生效
+        failureCache.Clear();
+
+        foreach (var preset in config.CustomizePresets)
+        {
+            if (!preset.Enabled) continue;
+
+            try
+            {
+                switch (preset.Type)
+                {
+                    case CustomizeType.Name:
+                        if (!string.IsNullOrEmpty(preset.Value))
+                            lookupName.Add((Encoding.UTF8.GetBytes(preset.Value), preset));
+                        break;
+                    case CustomizeType.DataID:
+                        if (uint.TryParse(preset.Value, out var dataId))
+                            lookupDataID.TryAdd(dataId, preset);
+                        break;
+                    case CustomizeType.ObjectID:
+                        var valStr = preset.Value.Trim();
+                        var val = valStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                                      ? ulong.Parse(valStr.AsSpan(2), NumberStyles.HexNumber)
+                                      : ulong.Parse(valStr);
+                        lookupObjectID.TryAdd(val, preset);
+                        break;
+                    case CustomizeType.ModelCharaID:
+                        if (int.TryParse(preset.Value, out var charaId))
+                            lookupModelCharaID.TryAdd(charaId, preset);
+                        break;
+                    case CustomizeType.ModelSkeletonID:
+                        if (int.TryParse(preset.Value, out var skelId))
+                            lookupModelSkeletonID.TryAdd(skelId, preset);
+                        break;
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+    }
+
+    private void ClearLookupCache()
+    {
+        lookupDataID.Clear();
+        lookupObjectID.Clear();
+        lookupModelCharaID.Clear();
+        lookupModelSkeletonID.Clear();
+        lookupName.Clear();
+    }
+
+    #endregion
+
+    #region UI
 
     protected override void ConfigUI()
     {
@@ -61,249 +353,249 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         using var table     = ImRaii.Table("###ConfigTable", 7, ImGuiTableFlags.BordersInner, tableSize);
         if (!table) return;
 
-        ImGui.TableSetupColumn("启用",   ImGuiTableColumnFlags.WidthFixed, CheckboxSize.X);
+        ImGui.TableSetupColumn("启用",   ImGuiTableColumnFlags.WidthFixed, ImGui.GetTextLineHeightWithSpacing());
         ImGui.TableSetupColumn("备注",   ImGuiTableColumnFlags.None,       20);
         ImGui.TableSetupColumn("模式",   ImGuiTableColumnFlags.WidthFixed, ImGui.CalcTextSize("ModelSkeletonID").X);
         ImGui.TableSetupColumn("值",    ImGuiTableColumnFlags.None,       30);
         ImGui.TableSetupColumn("缩放比例", ImGuiTableColumnFlags.WidthFixed, ImGui.CalcTextSize("99.99").X);
-        ImGui.TableSetupColumn("缩放特效", ImGuiTableColumnFlags.WidthFixed, CheckboxSize.X);
-        ImGui.TableSetupColumn("操作",   ImGuiTableColumnFlags.WidthFixed, 6 * CheckboxSize.X);
+        ImGui.TableSetupColumn("缩放特效", ImGuiTableColumnFlags.WidthFixed, ImGui.GetTextLineHeightWithSpacing());
+        ImGui.TableSetupColumn("操作",   ImGuiTableColumnFlags.WidthFixed, 6 * ImGui.GetTextLineHeightWithSpacing());
 
         ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
 
+        DrawAddPresetSection();
         ImGui.TableNextColumn();
-        if (ImGuiOm.SelectableIconCentered("AddNewPreset", FontAwesomeIcon.Plus))
-            ImGui.OpenPopup("AddNewPresetPopup");
-
-        using (var popup = ImRaii.Popup("AddNewPresetPopup"))
-        {
-            if (popup)
-            {
-                CustomizePresetEditorUI(ref TypeInput, ref ValueInput, ref ScaleInput, ref ScaleVFXInput, ref NoteInput);
-
-                ImGui.Spacing();
-
-                var buttonSize = new Vector2(ImGui.GetContentRegionAvail().X, 24f * GlobalFontScale);
-                if (ImGui.Button(GetLoc("Add"), buttonSize))
-                {
-                    if (ScaleInput > 0 && !string.IsNullOrWhiteSpace(ValueInput))
-                    {
-                        ModuleConfig.CustomizePresets.Add(
-                            new CustomizePreset
-                            {
-                                Enabled  = true,
-                                Scale    = ScaleInput,
-                                Type     = TypeInput,
-                                Value    = ValueInput,
-                                ScaleVFX = ScaleVFXInput,
-                                Note     = NoteInput,
-                            });
-
-                        SaveConfig(ModuleConfig);
-                        ImGui.CloseCurrentPopup();
-                    }
-                }
-            }
-        }
-
+        ImGuiOm.Text(Lang.Get("Note"));
         ImGui.TableNextColumn();
-        ImGuiOm.Text(GetLoc("Note"));
-
+        ImGuiOm.Text(Lang.Get("CustomizeGameObject-CustomizeType"));
         ImGui.TableNextColumn();
-        ImGuiOm.Text(GetLoc("CustomizeGameObject-CustomizeType"));
-
+        ImGuiOm.Text(Lang.Get("Value"));
         ImGui.TableNextColumn();
-        ImGuiOm.Text(GetLoc("Value"));
-
-        ImGui.TableNextColumn();
-        ImGuiOm.Text(GetLoc("CustomizeGameObject-Scale"));
-
+        ImGuiOm.Text(Lang.Get("CustomizeGameObject-Scale"));
         ImGui.TableNextColumn();
         ImGui.Dummy(new(32f));
-        ImGuiOm.TooltipHover(GetLoc("CustomizeGameObject-ScaleVFX"));
-
+        ImGuiOm.TooltipHover(Lang.Get("CustomizeGameObject-ScaleVFX"));
         ImGui.TableNextColumn();
-        ImGuiOm.Text(GetLoc("Operation"));
+        ImGuiOm.Text(Lang.Get("Operation"));
 
-        var array = ModuleConfig.CustomizePresets.ToArray();
-        for (var i = 0; i < ModuleConfig.CustomizePresets.Count; i++)
+        var array = config.CustomizePresets.ToArray();
+
+        for (var i = 0; i < array.Length; i++)
         {
             var       preset = array[i];
             using var id     = ImRaii.PushId($"Preset_{i}");
 
-            ImGui.TableNextRow();
-
-            ImGui.TableNextColumn();
-            var isEnabled = preset.Enabled;
-            if (ImGui.Checkbox("###IsEnabled", ref isEnabled))
-            {
-                ModuleConfig.CustomizePresets[i].Enabled = isEnabled;
-                SaveConfig(ModuleConfig);
-
-                RemovePresetHistory(preset);
-            }
-
-            CheckboxSize = ImGui.GetItemRectSize();
-
-            ImGui.TableNextColumn();
-            ImGuiOm.Text(preset.Note);
-
-            ImGui.TableNextColumn();
-            ImGuiOm.Text(preset.Type.ToString());
-
-            ImGui.TableNextColumn();
-            ImGuiOm.Text(preset.Value);
-
-            ImGui.TableNextColumn();
-            ImGuiOm.Text(preset.Scale.ToString(CultureInfo.InvariantCulture));
-
-            ImGui.TableNextColumn();
-            var isScaleVFX = preset.ScaleVFX;
-            if (ImGui.Checkbox("###IsScaleVFX", ref isScaleVFX))
-            {
-                ModuleConfig.CustomizePresets[i].ScaleVFX = isScaleVFX;
-                SaveConfig(ModuleConfig);
-
-                RemovePresetHistory(preset);
-            }
-
-            ImGui.TableNextColumn();
-            if (ImGuiOm.ButtonIcon($"EditPreset_{i}", FontAwesomeIcon.Edit))
-                ImGui.OpenPopup($"EditNewPresetPopup_{i}");
-
-            using (var popup = ImRaii.Popup($"EditNewPresetPopup_{i}"))
-            {
-                if (popup)
-                {
-                    if (ImGui.IsWindowAppearing())
-                    {
-                        TypeEditInput     = preset.Type;
-                        NoteEditInput     = preset.Note;
-                        ScaleEditInput    = preset.Scale;
-                        ValueEditInput    = preset.Value;
-                        ScaleVFXEditInput = preset.ScaleVFX;
-                    }
-
-                    if (CustomizePresetEditorUI(ref TypeEditInput,     ref ValueEditInput, ref ScaleEditInput,
-                                                ref ScaleVFXEditInput, ref NoteEditInput))
-                    {
-                        ModuleConfig.CustomizePresets[i].Type     = TypeEditInput;
-                        ModuleConfig.CustomizePresets[i].Value    = ValueEditInput;
-                        ModuleConfig.CustomizePresets[i].Scale    = ScaleEditInput;
-                        ModuleConfig.CustomizePresets[i].ScaleVFX = ScaleVFXEditInput;
-                        ModuleConfig.CustomizePresets[i].Note     = NoteEditInput;
-                        SaveConfig(ModuleConfig);
-
-                        RemovePresetHistory(preset);
-                    }
-                }
-            }
-
-            ImGui.SameLine();
-            if (ImGuiOm.ButtonIcon($"DeletePreset_{i}", FontAwesomeIcon.TrashAlt, GetLoc("HoldCtrlToDelete")) &&
-                ImGui.IsKeyDown(ImGuiKey.LeftCtrl))
-            {
-                var keysToRemove = CustomizeHistory
-                                   .Where(x => x.Value.Preset == preset)
-                                   .Select(x => x.Key)
-                                   .ToList();
-
-                foreach (var key in keysToRemove)
-                {
-                    ResetCustomizeFromHistory(key);
-                    CustomizeHistory.Remove(key);
-                }
-
-                ModuleConfig.CustomizePresets.Remove(preset);
-                SaveConfig(ModuleConfig);
-            }
-
-            ImGui.SameLine();
-            if (ImGuiOm.ButtonIcon($"ExportPreset_{i}", FontAwesomeIcon.FileExport, GetLoc("ExportToClipboard")))
-                ExportToClipboard(preset);
-
-            ImGui.SameLine();
-            if (ImGuiOm.ButtonIcon($"ImportPreset_{i}", FontAwesomeIcon.FileImport, GetLoc("ImportFromClipboard")))
-            {
-                var presetImport = ImportFromClipboard<CustomizePreset>();
-
-                if (presetImport != null && !ModuleConfig.CustomizePresets.Contains(presetImport))
-                {
-                    ModuleConfig.CustomizePresets.Add(presetImport);
-                    SaveConfig(ModuleConfig);
-                    array = [.. ModuleConfig.CustomizePresets];
-                }
-            }
-
+            DrawPresetRow(i, preset);
         }
     }
 
-    private static bool CustomizePresetEditorUI(
-        ref CustomizeType typeInput,     ref string valueInput, ref float scaleInput,
-        ref bool          scaleVFXInput, ref string noteInput)
+    private void DrawAddPresetSection()
     {
-        var state = false;
+        ImGui.TableNextColumn();
+        if (ImGuiOm.SelectableIconCentered("AddNewPreset", FontAwesomeIcon.Plus))
+            ImGui.OpenPopup("AddNewPresetPopup");
 
+        using var popup = ImRaii.Popup("AddNewPresetPopup");
+
+        if (popup)
+        {
+            CustomizePresetEditorUI(ref typeInput, ref valueInput, ref scaleInput, ref scaleVFXInput, ref noteInput);
+            ImGui.Spacing();
+
+            var buttonSize = new Vector2(ImGui.GetContentRegionAvail().X, 24f * GlobalUIScale);
+
+            if (ImGui.Button(Lang.Get("Add"), buttonSize))
+            {
+                if (scaleInput > 0 && !string.IsNullOrWhiteSpace(valueInput))
+                {
+                    var newPreset = new CustomizePreset
+                    {
+                        Enabled  = true,
+                        Scale    = scaleInput,
+                        Type     = typeInput,
+                        Value    = valueInput,
+                        ScaleVFX = scaleVFXInput,
+                        Note     = noteInput
+                    };
+
+                    config.CustomizePresets.Add(newPreset);
+                    SaveAndRebuild();
+                    ImGui.CloseCurrentPopup();
+                }
+            }
+        }
+    }
+
+    private void DrawPresetRow(int i, CustomizePreset preset)
+    {
+        ImGui.TableNextRow();
+
+        // Enabled
+        ImGui.TableNextColumn();
+        var isEnabled = preset.Enabled;
+
+        if (ImGui.Checkbox("###IsEnabled", ref isEnabled))
+        {
+            preset.Enabled = isEnabled;
+            RemovePresetHistory(preset);
+            SaveAndRebuild();
+        }
+
+        // Note
+        ImGui.TableNextColumn();
+        ImGuiOm.Text(preset.Note);
+
+        // Type
+        ImGui.TableNextColumn();
+        ImGuiOm.Text(preset.Type.ToString());
+
+        // Value
+        ImGui.TableNextColumn();
+        ImGuiOm.Text(preset.Value);
+
+        // Scale
+        ImGui.TableNextColumn();
+        ImGuiOm.Text(preset.Scale.ToString(CultureInfo.InvariantCulture));
+
+        // ScaleVFX
+        ImGui.TableNextColumn();
+        var isScaleVFX = preset.ScaleVFX;
+
+        if (ImGui.Checkbox("###IsScaleVFX", ref isScaleVFX))
+        {
+            preset.ScaleVFX = isScaleVFX;
+            RemovePresetHistory(preset);
+            SaveAndRebuild();
+        }
+
+        // Operations
+        ImGui.TableNextColumn();
+
+        // Edit
+        if (ImGuiOm.ButtonIcon($"EditPreset_{i}", FontAwesomeIcon.Edit))
+            ImGui.OpenPopup($"EditNewPresetPopup_{i}");
+
+        using (var popup = ImRaii.Popup($"EditNewPresetPopup_{i}"))
+        {
+            if (popup)
+            {
+                if (ImGui.IsWindowAppearing())
+                {
+                    typeEditInput     = preset.Type;
+                    noteEditInput     = preset.Note;
+                    scaleEditInput    = preset.Scale;
+                    valueEditInput    = preset.Value;
+                    scaleVFXEditInput = preset.ScaleVFX;
+                }
+
+                if (CustomizePresetEditorUI(ref typeEditInput, ref valueEditInput, ref scaleEditInput, ref scaleVFXEditInput, ref noteEditInput))
+                {
+                    preset.Type     = typeEditInput;
+                    preset.Value    = valueEditInput;
+                    preset.Scale    = scaleEditInput;
+                    preset.ScaleVFX = scaleVFXEditInput;
+                    preset.Note     = noteEditInput;
+
+                    RemovePresetHistory(preset);
+                    SaveAndRebuild();
+                }
+            }
+        }
+
+        ImGui.SameLine();
+
+        // Delete
+        if (ImGuiOm.ButtonIcon($"DeletePreset_{i}", FontAwesomeIcon.TrashAlt, Lang.Get("HoldCtrlToDelete")) &&
+            ImGui.IsKeyDown(ImGuiKey.LeftCtrl))
+        {
+            RemovePresetHistory(preset);
+            config.CustomizePresets.Remove(preset);
+            SaveAndRebuild();
+        }
+
+        ImGui.SameLine();
+        // Export
+        if (ImGuiOm.ButtonIcon($"ExportPreset_{i}", FontAwesomeIcon.FileExport, Lang.Get("ExportToClipboard")))
+            ExportToClipboard(preset);
+
+        ImGui.SameLine();
+
+        // Import
+        if (ImGuiOm.ButtonIcon($"ImportPreset_{i}", FontAwesomeIcon.FileImport, Lang.Get("ImportFromClipboard")))
+        {
+            var presetImport = ImportFromClipboard<CustomizePreset>();
+
+            if (presetImport != null && !config.CustomizePresets.Contains(presetImport))
+            {
+                config.CustomizePresets.Add(presetImport);
+                SaveAndRebuild();
+            }
+        }
+    }
+
+    private void SaveAndRebuild()
+    {
+        config.Save(this);
+        RebuildLookupCache();
+    }
+
+    private static bool CustomizePresetEditorUI
+        (ref CustomizeType typeInput, ref string valueInput, ref float scaleInput, ref bool scaleVFXInput, ref string noteInput)
+    {
+        var       state = false;
         using var table = ImRaii.Table("CustomizeTable", 2, ImGuiTableFlags.None);
         if (!table) return false;
 
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, ImGui.CalcTextSize("真得五个字").X);
-        ImGui.TableSetupColumn("Input", ImGuiTableColumnFlags.WidthFixed, 300f * GlobalFontScale);
+        ImGui.TableSetupColumn("Input", ImGuiTableColumnFlags.WidthFixed, 300f * GlobalUIScale);
 
-        // 类型
+        // Type
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted($"{GetLoc("CustomizeGameObject-CustomizeType")}:");
-
+        ImGui.TextUnformatted($"{Lang.Get("CustomizeGameObject-CustomizeType")}:");
         ImGui.TableNextColumn();
-        if (ImGui.BeginCombo("###CustomizeTypeSelectCombo", typeInput.ToString()))
+
+        using (var combo = ImRaii.Combo("###CustomizeTypeSelectCombo", typeInput.ToString()))
         {
-            foreach (var mode in Enum.GetValues<CustomizeType>())
+            if (combo)
             {
-                if (ImGui.Selectable(mode.ToString(), mode == typeInput))
+                foreach (var mode in Enum.GetValues<CustomizeType>())
                 {
-                    typeInput = mode;
-                    state     = true;
+                    if (ImGui.Selectable(mode.ToString(), mode == typeInput))
+                    {
+                        typeInput = mode;
+                        state     = true;
+                    }
                 }
             }
-
-            ImGui.EndCombo();
         }
 
-        // 值
+        // Value
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted($"{GetLoc("Value")}:");
-
+        ImGui.TextUnformatted($"{Lang.Get("Value")}:");
         ImGui.TableNextColumn();
         ImGui.InputText("###CustomizeValueInput", ref valueInput, 128);
-        if (ImGui.IsItemDeactivatedAfterEdit()) 
-            state = true;
+        if (ImGui.IsItemDeactivatedAfterEdit()) state = true;
         ImGuiOm.TooltipHover(valueInput);
 
-        // 缩放
+        // Scale
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted($"{GetLoc("CustomizeGameObject-Scale")}:");
-
+        ImGui.TextUnformatted($"{Lang.Get("CustomizeGameObject-Scale")}:");
         ImGui.TableNextColumn();
         ImGui.SliderFloat("###CustomizeScaleSilder", ref scaleInput, 0.1f, 10f, "%.1f");
-        if (ImGui.IsItemDeactivatedAfterEdit()) 
-            state = true;
-
+        if (ImGui.IsItemDeactivatedAfterEdit()) state = true;
         ImGui.SameLine();
-        if (ImGui.Checkbox(GetLoc("CustomizeGameObject-ScaleVFX"), ref scaleVFXInput)) 
-            state = true;
+        if (ImGui.Checkbox(Lang.Get("CustomizeGameObject-ScaleVFX"), ref scaleVFXInput)) state = true;
 
-        // 备注
+        // Note
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted($"{GetLoc("Note")}:");
-
+        ImGui.TextUnformatted($"{Lang.Get("Note")}:");
         ImGui.TableNextColumn();
         ImGui.InputText("###CustomizeNoteInput", ref noteInput, 128);
-        if (ImGui.IsItemDeactivatedAfterEdit()) 
-            state = true;
+        if (ImGui.IsItemDeactivatedAfterEdit()) state = true;
         ImGuiOm.TooltipHover(noteInput);
 
         return state;
@@ -313,213 +605,46 @@ public unsafe class CustomizeGameObject : DailyModuleBase
     {
         if (gameObject is not ICharacter chara)
         {
-            ImGui.TextUnformatted(GetLoc("CustomizeGameObject-NoTaretNotice"));
+            ImGui.TextUnformatted(Lang.Get("CustomizeGameObject-NoTaretNotice"));
             return;
         }
 
-        var       tableSize = new Vector2(350f * GlobalFontScale, 0f);
+        var       tableSize = new Vector2(350f * GlobalUIScale, 0f);
         using var table     = ImRaii.Table("TargetInfoPreviewTable", 2, ImGuiTableFlags.BordersInner, tableSize);
         if (!table) return;
 
         ImGui.TableSetupColumn("Lable", ImGuiTableColumnFlags.WidthFixed,   ImGui.CalcTextSize("--Model Skeleton ID--").X);
         ImGui.TableSetupColumn("Input", ImGuiTableColumnFlags.WidthStretch, 50);
 
-        // Target Name
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted($"{GetLoc("Name")}");
-
-        var targetName = chara.Name.ToString();
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("###TargetNamePreview", ref targetName, 128, ImGuiInputTextFlags.ReadOnly);
-
-        // Data ID
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted("Data ID");
-
-        var targetDataID = chara.DataID.ToString();
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("###TargetDataIDPreview", ref targetDataID, 128, ImGuiInputTextFlags.ReadOnly);
-
-        // Object ID
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted("Object ID");
-
-        var targetObjectID = chara.GameObjectID.ToString();
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("###TargetObjectIDPreview", ref targetObjectID, 128, ImGuiInputTextFlags.ReadOnly);
-
-        // ModelChara ID
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted("Model Chara ID");
-
-        var targetModelCharaID = chara.ModelCharaID.ToString();
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("###TargetModelCharaIDPreview", ref targetModelCharaID, 128, ImGuiInputTextFlags.ReadOnly);
-
-        // ModelChara ID
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted("Model Skeleton ID");
-
-        var targetSkeletonID = chara.ModelSkeletonID.ToString();
-        ImGui.TableNextColumn();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("###TargetModelSkeletonIDPreview", ref targetSkeletonID, 128, ImGuiInputTextFlags.ReadOnly);
-
-        if (chara is IPlayerCharacter { CurrentMount: not null })
+        void DrawRow(string label, string value)
         {
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.AlignTextToFramePadding();
-            ImGui.TextUnformatted("Mount Object ID");
-
-            var targetMountObjectID = ((ulong)chara.ToStruct()->Mount.MountObject->GetGameObjectId()).ToString();
+            ImGui.TextUnformatted(label);
             ImGui.TableNextColumn();
             ImGui.SetNextItemWidth(-1f);
-            ImGui.InputText("###TargetMountObjectIDPreview", ref targetMountObjectID, 128, ImGuiInputTextFlags.ReadOnly);
+            ImGui.InputText($"###{label}Preview", ref value, 128, ImGuiInputTextFlags.ReadOnly);
         }
-    }
 
-    private static void OnUpdate(IFramework framework)
-    {
-        if (ModuleConfig.CustomizePresets.Count == 0 ||
-            BetweenAreas                             || DService.Instance().ObjectTable.LocalPlayer == null ||
-            DService.Instance().PI.UiBuilder.CutsceneActive) return;
+        DrawRow(Lang.Get("Name"),    chara.Name.ToString());
+        DrawRow("Data ID",           chara.DataID.ToString());
+        DrawRow("Object ID",         chara.GameObjectID.ToString()); // Use hex for clarity? or keep decimal
+        DrawRow("Model Chara ID",    chara.ModelCharaID.ToString());
+        DrawRow("Model Skeleton ID", chara.ModelSkeletonID.ToString());
 
-        foreach (var obj in DService.Instance().ObjectTable)
+        if (chara is IPlayerCharacter { CurrentMount: not null } pc)
         {
-            if (obj.ObjectKind == ObjectKind.Player && string.IsNullOrWhiteSpace(obj.Name.ToString())) continue;
-            if (obj is not ICharacter chara) continue;
-            
-            var pTarget     = chara.ToStruct();
-            if (!chara.ToStruct()->IsReadyToDraw()) continue;
-            
-            var targetAddress = (nint)pTarget;
-
-            var name            = chara.Name.ToString();
-            var dataID          = chara.DataID.ToString();
-            var objectID        = chara.GameObjectID.ToString();
-            var modelCharaID    = chara.ModelCharaID.ToString();
-            var modelSkeletonID = chara.ModelSkeletonID.ToString();
-
-            foreach (var preset in ModuleConfig.CustomizePresets)
-            {
-                if (!preset.Enabled) continue;
-
-                var isNeedToReScale = preset.Type switch
-                {
-                    CustomizeType.Name            => name            == preset.Value,
-                    CustomizeType.DataID          => dataID          == preset.Value,
-                    CustomizeType.ObjectID        => objectID        == preset.Value,
-                    CustomizeType.ModelCharaID    => modelCharaID    == preset.Value,
-                    CustomizeType.ModelSkeletonID => modelSkeletonID == preset.Value,
-                    _                             => false,
-                };
-
-                if (isNeedToReScale)
-                {
-                    if (CustomizeHistory.TryGetValue(targetAddress, out var historyEntry))
-                    {
-                        if (pTarget->Scale != historyEntry.CurrentScale)
-                            CustomizeHistory.Remove(targetAddress);
-                    }
-
-                    if (!CustomizeHistory.ContainsKey(targetAddress))
-                    {
-                        var modifiedScale = pTarget->Scale * preset.Scale;
-                        var entry         = new CustomizeHistoryEntry(preset, pTarget->Scale, modifiedScale);
-                        if (CustomizeHistory.TryAdd(targetAddress, entry))
-                        {
-                            pTarget->Scale = modifiedScale;
-                            if (preset.ScaleVFX) 
-                                pTarget->VfxScale = modifiedScale;
-                            if (preset.Type is CustomizeType.ModelCharaID or CustomizeType.ModelSkeletonID)
-                                pTarget->CharacterData.ModelScale = modifiedScale;
-                        }
-
-                        pTarget->DisableDraw();
-                        pTarget->EnableDraw();
-                    }
-                }
-            }
+            // Accessing mount object safely
+            // Using pointer logic similar to original but safer if possible
+            var mountObj = pc.ToStruct()->Mount.MountObject;
+            if (mountObj != null)
+                DrawRow("Mount Object ID", mountObj->GetGameObjectId().ToString());
         }
     }
 
-    private static void OnZoneChanged(ushort zone) => CustomizeHistory.Clear();
-
-    private static void RemovePresetHistory(CustomizePreset? preset)
-    {
-        var keysToRemove = CustomizeHistory
-                           .Where(x => x.Value.Preset == preset)
-                           .Select(x => x.Key)
-                           .ToList();
-
-        foreach (var key in keysToRemove)
-        {
-            ResetCustomizeFromHistory(key);
-            CustomizeHistory.Remove(key);
-        }
-    }
-
-    private static void ResetCustomizeFromHistory(nint address)
-    {
-        if (CustomizeHistory.Count == 0) return;
-
-        if (!CustomizeHistory.TryGetValue(address, out var data)) return;
-
-        var gameObj = (GameObjectStruct*)address;
-        if (gameObj == null || !gameObj->IsReadyToDraw()) return;
-
-        gameObj->Scale = data.OrigScale;
-        gameObj->VfxScale = data.OrigScale;
-        gameObj->DisableDraw();
-        gameObj->EnableDraw();
-    }
-
-    private static void ResetAllCustomizeFromHistory()
-    {
-        if (CustomizeHistory.Count == 0) return;
-
-        foreach (var (objectPtr, data) in CustomizeHistory)
-        {
-            var gameObj = (GameObjectStruct*)objectPtr;
-            if (gameObj == null || !gameObj->IsReadyToDraw()) continue;
-
-            gameObj->Scale = data.OrigScale;
-            gameObj->VfxScale = data.OrigScale;
-            gameObj->DisableDraw();
-            gameObj->EnableDraw();
-        }
-    }
-
-    protected override void Uninit()
-    {
-        FrameworkManager.Instance().Unreg(OnUpdate);
-        DService.Instance().ClientState.TerritoryChanged -= OnZoneChanged;
-        
-        CancelSource?.Cancel();
-        CancelSource?.Dispose();
-        CancelSource = null;
-
-        if (DService.Instance().ObjectTable.LocalPlayer != null)
-            ResetAllCustomizeFromHistory();
-
-        CustomizeHistory.Clear();
-    }
-
+    #endregion
+    
     private class CustomizePreset : IEquatable<CustomizePreset>
     {
         public string        Note     { get; set; } = string.Empty;
@@ -532,15 +657,10 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         public bool Equals(CustomizePreset? other)
         {
             if (other == null) return false;
-
             return Type == other.Type && string.Equals(Value, other.Value, StringComparison.Ordinal);
         }
 
-        public override bool Equals(object? obj)
-        {
-            if (obj is CustomizePreset other) return Equals(other);
-            return false;
-        }
+        public override bool Equals(object? obj) => obj is CustomizePreset other && Equals(other);
 
         public override int GetHashCode() => HashCode.Combine(Type, Value);
 
@@ -549,7 +669,12 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         public static bool operator !=(CustomizePreset left, CustomizePreset right) => !Equals(left, right);
     }
 
-    private sealed record CustomizeHistoryEntry(CustomizePreset Preset, float OrigScale, float CurrentScale);
+    private sealed record CustomizeHistoryEntry
+    (
+        CustomizePreset Preset,
+        float           OrigScale,
+        float           CurrentScale
+    );
 
     private enum CustomizeType
     {
@@ -557,11 +682,17 @@ public unsafe class CustomizeGameObject : DailyModuleBase
         ModelCharaID,
         ModelSkeletonID,
         DataID,
-        ObjectID,
+        ObjectID
     }
 
-    private class Config : ModuleConfiguration
+    private class Config : ModuleConfig
     {
         public List<CustomizePreset> CustomizePresets = [];
     }
+    
+    #region 常量
+
+    private const int THROTTLE_INTERVAL_MS = 2_000;
+
+    #endregion
 }

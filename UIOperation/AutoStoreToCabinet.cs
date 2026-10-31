@@ -1,57 +1,56 @@
-using System;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
-using DailyRoutines.Managers;
-using DailyRoutines.Windows;
+using System.Collections.Frozen;
+using System.Numerics;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
-using Dalamud.Interface.Colors;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Threading;
-using System.Threading.Tasks;
+using OmenTools.Info.Game.Data;
+using OmenTools.Info.Game.Enums;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
-namespace DailyRoutines.Modules;
+namespace DailyRoutines.ModulesPublic;
 
-public class AutoStoreToCabinet : DailyModuleBase
+public class AutoStoreToCabinet : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title = GetLoc("AutoStoreToCabinetTitle"),
-        Description = GetLoc("AutoStoreToCabinetDescription"),
-        Category = ModuleCategories.UIOperation,
+        Title       = Lang.Get("AutoStoreToCabinetTitle"),
+        Description = Lang.Get("AutoStoreToCabinetDescription"),
+        Category    = ModuleCategory.UIOperation
     };
 
-    private static readonly List<InventoryType> ValidInventoryTypes =
-    [
-        InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3,
-        InventoryType.Inventory4, InventoryType.ArmoryBody, InventoryType.ArmoryEar, InventoryType.ArmoryFeets,
-        InventoryType.ArmoryHands, InventoryType.ArmoryHead, InventoryType.ArmoryLegs, InventoryType.ArmoryRings,
-        InventoryType.ArmoryNeck, InventoryType.ArmoryWrist, InventoryType.ArmoryRings, InventoryType.ArmoryMainHand,
-        InventoryType.ArmoryOffHand,
-    ];
+    private readonly CancellationTokenSource cancelSource = new();
 
-    private static Dictionary<uint, uint>? CabinetItems; // Item ID - Cabinet Index
+    private bool isOnTask;
 
-    private static CancellationTokenSource? CancelSource;
-    private static bool IsOnTask;
-    
     protected override void Init()
     {
-        CabinetItems ??= LuminaGetter.Get<Cabinet>()
-                                    .Where(x => x.Item.RowId > 0)
-                                    .ToDictionary(x => x.Item.RowId, x => x.RowId);
+        Overlay = new(this);
 
-        CancelSource ??= new();
-        Overlay ??= new Overlay(this);
-
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "Cabinet", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Cabinet", OnAddon);
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Cabinet", OnAddon);
     }
+    
+    protected override void Uninit()
+    {
+        cancelSource.Cancel();
+        cancelSource.Dispose();
+        
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
+    }
+    
+    // TODO: 改成原生的
+    private void OnAddon(AddonEvent type, AddonArgs args) =>
+        Overlay.IsOpen = type switch
+        {
+            AddonEvent.PostSetup   => true,
+            AddonEvent.PreFinalize => false,
+            _                      => Overlay.IsOpen
+        };
 
     protected override unsafe void OverlayPreDraw()
     {
@@ -61,67 +60,77 @@ public class AutoStoreToCabinet : DailyModuleBase
 
     protected override void OverlayUI()
     {
-        using (FontManager.Instance().UIFont.Push())
+        using var font = FontManager.Instance().UIFont.Push();
+
+        unsafe
         {
-            unsafe
-            {
-                var addon = CabinetAddon;
-                var pos   = new Vector2(addon->GetX() + 6, addon->GetY() - ImGui.GetWindowHeight() + 6);
-                ImGui.SetWindowPos(pos);
-            }
+            var addon = CabinetAddon;
+            var pos   = new Vector2(addon->GetX() + 6, addon->GetY() - ImGui.GetWindowHeight() + 6);
+            ImGui.SetWindowPos(pos);
+        }
 
-            ImGui.AlignTextToFramePadding();
-            ImGui.TextColored(ImGuiColors.DalamudYellow, Lang.Get("AutoStoreToCabinetTitle"));
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), Lang.Get("AutoStoreToCabinetTitle"));
 
-            ImGui.SameLine();
-            ImGui.Spacing();
+        ImGui.SameLine();
+        ImGui.Spacing();
 
-            ImGui.SameLine();
-            ImGui.BeginDisabled(IsOnTask);
-            if (ImGui.Button(Lang.Get("Start")))
-            {
-                IsOnTask = true;
-                DService.Instance().Framework.RunOnTick(async () =>
+        ImGui.SameLine();
+        ImGui.BeginDisabled(isOnTask);
+
+        if (ImGui.Button(Lang.Get("Start")))
+        {
+            isOnTask = true;
+            DService.Instance().Framework.RunOnTick
+            (
+                async () =>
                 {
                     try
                     {
                         var list = ScanValidCabinetItems();
+
                         if (list.Count > 0)
                         {
                             foreach (var item in list)
                             {
                                 ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.StoreToCabinet, item);
+                                ExecuteCommandManager.Instance().ExecuteCommand(ExecuteCommandFlag.InventoryRefresh);
                                 await Task.Delay(100).ConfigureAwait(false);
                             }
                         }
                     }
                     finally
                     {
-                        IsOnTask = false;
+                        isOnTask = false;
                     }
-                }, cancellationToken: CancelSource.Token);
-            }
-
-            ImGui.EndDisabled();
-
-            ImGui.SameLine();
-            if (ImGui.Button(Lang.Get("Stop")))
-            {
-                CancelSource.Cancel();
-                IsOnTask = false;
-            }
-
-            ImGuiOm.HelpMarker(Lang.Get("AutoStoreToCabinet-StoreHelp"));
+                },
+                cancellationToken: cancelSource.Token
+            );
         }
+
+        ImGui.EndDisabled();
+
+        ImGui.SameLine();
+
+        if (ImGui.Button(Lang.Get("Stop")))
+        {
+            cancelSource.Cancel();
+            isOnTask = false;
+        }
+
+        ImGuiOm.HelpMarker(Lang.Get("AutoStoreToCabinet-StoreHelp"));
+
     }
 
     private static List<uint> ScanValidCabinetItems()
     {
         var list = new List<uint>();
+
         unsafe
         {
             var inventoryManager = InventoryManager.Instance();
-            foreach (var inventory in ValidInventoryTypes)
+
+            foreach (var inventory in Inventories.PlayerWithArmory)
             {
                 var container = inventoryManager->GetInventoryContainer(inventory);
                 if (container == null) continue;
@@ -143,21 +152,14 @@ public class AutoStoreToCabinet : DailyModuleBase
 
         return list;
     }
+    
+    #region 常量
 
-    private void OnAddon(AddonEvent type, AddonArgs args)
-    {
-        Overlay.IsOpen = type switch
-        {
-            AddonEvent.PostSetup => true,
-            AddonEvent.PreFinalize => false,
-            _ => Overlay.IsOpen,
-        };
-    }
+    // Item ID - Cabinet Index
+    private static readonly FrozenDictionary<uint, uint> CabinetItems =
+        LuminaGetter.Get<Cabinet>()
+                    .Where(x => x.Item.RowId > 0)
+                    .ToFrozenDictionary(x => x.Item.RowId, x => x.RowId);
 
-    protected override void Uninit()
-    {
-        CancelSource?.Cancel();
-        CancelSource?.Dispose();
-        CancelSource = null;
-    }
+    #endregion
 }

@@ -1,114 +1,351 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
-using DailyRoutines.Managers;
+using System.Collections.Concurrent;
+using DailyRoutines.Common.Info.Abstractions;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Common.RemoteInteraction.Enums;
+using DailyRoutines.Common.RemoteInteraction.Helpers;
+using DailyRoutines.Extensions;
+using DailyRoutines.Manager;
+using DailyRoutines.RemoteInteraction.PlayerInfo;
+using DailyRoutines.RemoteInteraction.UsedNames;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Gui.ContextMenu;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using KamiToolKit;
-using KamiToolKit.Classes;
+using KamiToolKit.Enums;
 using KamiToolKit.Nodes;
+using Lumina.Text.ReadOnly;
+using OmenTools.Dalamud;
+using OmenTools.Dalamud.Attributes;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
+using OmenTools.Threading;
+using OmenTools.Threading.TaskHelper;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class OptimizedFriendList : DailyModuleBase
+public unsafe class OptimizedFriendList : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title               = GetLoc("OptimizedFriendListTitle"),
-        Description         = GetLoc("OptimizedFriendListDescription"),
-        Category            = ModuleCategories.UIOptimization,
+        Title               = Lang.Get("OptimizedFriendListTitle"),
+        Description         = Lang.Get("OptimizedFriendListDescription"),
+        Category            = ModuleCategory.UIOptimization,
         ModulesPrerequisite = ["FastWorldTravel"]
     };
-    
+
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
     
-    private static          ModifyInfoMenuItem          ModifyInfoItem    = null!;
-    private static readonly TeleportFriendZoneMenuItem  TeleportZoneItem  = new();
-    private static readonly TeleportFriendWorldMenuItem TeleportWorldItem = new();
+    private Config config = null!;
 
-    private static Config ModuleConfig = null!;
-
-    private static TextInputNode?      SearchInputNode;
-    private static TextureButtonNode?  SearchSettingButtonNode;
-
-    private static DRFriendlistRemarkEdit?    RemarkEditAddon;
-    private static DRFriendlistSearchSetting? SearchSettingAddon;
+    private readonly ModifyInfoMenuItem          modifyInfoItem;
+    private readonly TeleportFriendZoneMenuItem  teleportZoneItem  = new();
+    private readonly TeleportFriendWorldMenuItem teleportWorldItem = new();
     
-    private static string SearchString = string.Empty;
-    
-    private static readonly List<nint>                             Utf8Strings = [];
-    private static readonly List<PlayerUsedNamesSubscriptionToken> Tokens      = [];
-    private static readonly List<PlayerInfoSubscriptionToken>      InfoTokens  = [];
+    private TextInputNode?     searchInputNode;
+    private TextureButtonNode? searchSettingButtonNode;
+
+    private DRFriendlistRemarkEdit?    remarkEditAddon;
+    private DRFriendlistSearchSetting? searchSettingAddon;
+
+    private string searchString = string.Empty;
+
+    private readonly List<IDisposable> infoTokens  = [];
+
+    public OptimizedFriendList() =>
+        modifyInfoItem = new(this, TaskHelper);
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
+        config     =   Config.Load(this) ?? new();
         TaskHelper ??= new();
 
-        RemarkEditAddon ??= new(this)
+        remarkEditAddon ??= new(this)
         {
             InternalName = "DRFriendlistRemarkEdit",
-            Title        = GetLoc("OptimizedFriendList-ContextMenu-NicknameAndRemark"),
-            Size         = new(460f, 310f),
+            Title        = Lang.Get("OptimizedFriendList-ContextMenu-NicknameAndRemark"),
+            Size         = new(460f, 310f)
         };
 
-        SearchSettingAddon ??= new(this, TaskHelper)
+        searchSettingAddon ??= new(this, TaskHelper)
         {
             InternalName = "DRFriendlistSearchSetting",
-            Title        = GetLoc("OptimizedFriendList-Addon-SearchSetting"),
-            Size         = new(230f, 350f),
+            Title        = Lang.Get("OptimizedFriendList-Addon-SearchSetting"),
+            Size         = new(230f, 350f)
         };
-
-        ModifyInfoItem = new(TaskHelper);
         
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,           "FriendList", OnAddon);
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRequestedUpdate,  "FriendList", OnAddon);
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize,         "FriendList", OnAddon);
-        if (FriendList->IsAddonAndNodesReady()) 
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,          "FriendList", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreRequestedUpdate, "FriendList", OnAddon);
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize,        "FriendList", OnAddon);
+        if (FriendList->IsAddonAndNodesReady())
             OnAddon(AddonEvent.PostSetup, null);
 
         DService.Instance().ContextMenu.OnMenuOpened += OnContextMenu;
     }
-    
+
     protected override void Uninit()
     {
         DService.Instance().ContextMenu.OnMenuOpened -= OnContextMenu;
-        
+
         DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
-        OnAddon(AddonEvent.PreFinalize, null);
         
-        RemarkEditAddon?.Dispose();
-        RemarkEditAddon = null;
-        
-        SearchSettingAddon?.Dispose();
-        SearchSettingAddon = null;
-        
+        searchInputNode?.Dispose();
+        searchInputNode = null;
+
+        searchSettingButtonNode?.Dispose();
+        searchSettingButtonNode = null;
+
+        foreach (var x in infoTokens)
+            x.Dispose();
+        infoTokens.Clear();
+
+        remarkEditAddon?.Dispose();
+        remarkEditAddon = null;
+
+        searchSettingAddon?.Dispose();
+        searchSettingAddon = null;
+
         if (FriendList->IsAddonAndNodesReady())
             InfoProxyFriendList.Instance()->RequestData();
     }
 
+    private void ReplaceAtkString(int index, ReadOnlySeString str)
+    {
+        using var utf8String = new Utf8String(str);
+        AtkStage.Instance()->GetStringArrayData(StringArrayType.FriendList)->SetValue(index, utf8String.StringPtr);
+    }
+
+    private void ApplyDisplayModification(TaskHelper? taskHelper)
+    {
+        var addon = FriendList;
+        if (!addon->IsAddonAndNodesReady()) return;
+
+        var info = InfoProxyFriendList.Instance();
+
+        var isAnyUpdate = false;
+
+        for (var i = 0; i < info->EntryCount; i++)
+        {
+            var data = info->CharDataSpan[i];
+
+            var existedName = AtkStage.Instance()->GetStringArrayData(StringArrayType.FriendList)->StringArray[0 + (5 * i)].ToString();
+            if (existedName == LuminaWrapper.GetAddonText(964))
+            {
+                isAnyUpdate = true;
+                RestoreEntryData(i, data.ContentId, taskHelper);
+            }
+
+            if (!config.PlayerInfos.TryGetValue(data.ContentId, out var configInfo)) continue;
+
+            if (!string.IsNullOrWhiteSpace(configInfo.Nickname) && existedName != configInfo.Nickname)
+            {
+                isAnyUpdate = true;
+
+                using var nicknameBuilder = new RentedSeStringBuilder();
+                nicknameBuilder.Builder
+                               .PushColorType(37)
+                               .Append($"{configInfo.Nickname}")
+                               .PopColorType();
+                
+                // 名字
+                ReplaceAtkString(0 + (5 * i), nicknameBuilder.Builder.ToReadOnlySeString());
+            }
+
+            var existedRemark = AtkStage.Instance()->GetStringArrayData(StringArrayType.FriendList)->StringArray[3 + (5 * i)].ToString();
+            if (!string.IsNullOrWhiteSpace(configInfo.Remark))
+            {
+                var remarkText = $"{LuminaWrapper.GetAddonText(13294).TrimEnd(':')}: {configInfo.Remark}" +
+                                 (string.IsNullOrWhiteSpace(configInfo.Nickname)
+                                      ? string.Empty
+                                      : $"\n{LuminaWrapper.GetAddonText(9818)}: {data.NameString}");
+
+                if (remarkText == existedRemark) continue;
+                isAnyUpdate = true;
+                
+                // 在线状态
+                ReplaceAtkString(3 + (5 * i), remarkText);
+            }
+        }
+
+        if (!isAnyUpdate || taskHelper == null) return;
+
+        RequestInfoUpdate(taskHelper);
+    }
+
+    private static void RequestInfoUpdate(TaskHelper taskHelper)
+    {
+        taskHelper.Abort();
+
+        if (FriendList == null) return;
+
+        taskHelper.Enqueue
+        (() =>
+            {
+                if (FriendList == null) return;
+                FriendList->OnRequestedUpdate(AtkStage.Instance()->GetNumberArrayData(), AtkStage.Instance()->GetStringArrayData());
+            }
+        );
+        taskHelper.DelayNext(100);
+        taskHelper.Enqueue
+        (() =>
+            {
+                if (FriendList == null) return;
+                FriendList->OnRequestedUpdate(AtkStage.Instance()->GetNumberArrayData(), AtkStage.Instance()->GetStringArrayData());
+            }
+        );
+    }
+
+    private bool MatchesSearch(string filter)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+
+        if (string.IsNullOrWhiteSpace(filter))
+            return false;
+
+        if (searchString.StartsWith('^'))
+            return filter.StartsWith(searchString[1..], StringComparison.InvariantCultureIgnoreCase);
+
+        if (searchString.EndsWith('$'))
+            return filter.EndsWith(searchString[..^1], StringComparison.InvariantCultureIgnoreCase);
+
+        return filter.Contains(searchString, StringComparison.InvariantCultureIgnoreCase);
+    }
+
+    protected void ApplySearchFilter(string filter, TaskHelper? taskHelper)
+    {
+        var info = InfoProxyFriendList.Instance();
+
+        if (string.IsNullOrWhiteSpace(filter))
+        {
+            info->ApplyFilters();
+            return;
+        }
+
+        var resets           = new Dictionary<ulong, uint>();
+        var resetFilterGroup = info->FilterGroup;
+        info->FilterGroup = InfoProxyCommonList.DisplayGroup.None;
+
+        var entryCount = info->GetEntryCount();
+
+        for (var i = 0; i < entryCount; i++)
+        {
+            var entry = info->GetEntry((uint)i);
+            if (entry == null) continue;
+
+            var data = info->CharDataSpan[i];
+            resets.Add(entry->ContentId, entry->ExtraFlags);
+
+            if (config.IgnoredGroup[(int)entry->Group])
+            {
+                entry->ExtraFlags = entry->ExtraFlags & 0xFFFF | (uint)(1 & 0xFF) << 16; // 添加隐藏标记
+                continue;
+            }
+
+            var        matchResult = false;
+            PlayerInfo configInfo  = null;
+
+            if (config.SearchName)
+            {
+                var entryNameString = entry->NameString;
+                if (string.IsNullOrEmpty(entry->NameString)) // 搜索会导致非本大区角色被重新刷新为（无法获得角色情报） 需要重新配置
+                    RestoreEntryData(i, data.ContentId, taskHelper, name => entryNameString = name);
+
+                matchResult |= MatchesSearch(entryNameString);
+            }
+
+            if (config.SearchNickname)
+            {
+                if (config.PlayerInfos.TryGetValue(data.ContentId, out configInfo))
+                    matchResult |= MatchesSearch(configInfo.Nickname);
+            }
+
+            if (config.SearchRemark)
+            {
+                if (config.PlayerInfos.TryGetValue(data.ContentId, out configInfo))
+                    matchResult |= MatchesSearch(configInfo.Remark);
+            }
+
+            if ((resetFilterGroup == InfoProxyCommonList.DisplayGroup.All || entry->Group == resetFilterGroup) && matchResult)
+                entry->ExtraFlags &= 0xFFFF; // 去除隐藏标记
+            else
+                entry->ExtraFlags = entry->ExtraFlags & 0xFFFF | (uint)(1 & 0xFF) << 16;
+        }
+
+        info->ApplyFilters();
+        info->FilterGroup = resetFilterGroup;
+
+        foreach (var pair in resets)
+        {
+            var entry = info->GetEntryByContentId(pair.Key);
+            entry->ExtraFlags = pair.Value;
+        }
+    }
+
+    private void RestoreEntryData(int index, ulong contentID, TaskHelper? taskHelper, Action<string>? onNameResolved = null)
+    {
+        var region = WorldRegionResolver.Resolve(GameState.HomeWorld);
+        _ = RemotePlayerInfo.GetOrRequest(contentID, region);
+
+        var observer = RemotePlayerInfo.Observe
+        (
+            contentID,
+            region,
+            snapshot =>
+            {
+                if (!snapshot.HasValue || snapshot.Value is not { } playerInfo)
+                    return;
+
+                if (FriendList == null) return;
+
+                using var nameBuilder = new RentedSeStringBuilder();
+                nameBuilder.Builder
+                           .PushColorType(32)
+                           .Append(playerInfo.Name)
+                           .PopColorType();
+                
+                ReplaceAtkString(0 + (5 * index), nameBuilder.Builder.ToReadOnlySeString());
+
+                using var worldBuilder = new RentedSeStringBuilder();
+                worldBuilder.Builder
+                            .Append(LuminaWrapper.GetWorldName(playerInfo.WorldID))
+                            .AppendIcon((uint)BitmapFontIcon.CrossWorld)
+                            .Append(LuminaWrapper.GetWorldDCName(playerInfo.WorldID));
+                
+                ReplaceAtkString(1 + (5 * index), worldBuilder.Builder.ToReadOnlySeString());
+
+                ReplaceAtkString(3 + (5 * index), LuminaWrapper.GetAddonText(1351));
+
+                onNameResolved?.Invoke(playerInfo.Name);
+
+                if (taskHelper != null)
+                    RequestInfoUpdate(taskHelper);
+            }
+        );
+        infoTokens.Add(observer);
+    }
+    
     #region 事件
 
-    private static void OnContextMenu(IMenuOpenedArgs args)
+    private void OnContextMenu(IMenuOpenedArgs args)
     {
-        if (ModifyInfoItem.IsDisplay(args))
-            args.AddMenuItem(ModifyInfoItem.Get());
-        
-        if (TeleportZoneItem.IsDisplay(args))
-            args.AddMenuItem(TeleportZoneItem.Get());
+        if (modifyInfoItem.IsDisplay(args))
+            args.AddMenuItem(modifyInfoItem.Get());
 
-        if (TeleportWorldItem.IsDisplay(args))
-            args.AddMenuItem(TeleportWorldItem.Get());
+        if (teleportZoneItem.IsDisplay(args))
+            args.AddMenuItem(teleportZoneItem.Get());
+
+        if (teleportWorldItem.IsDisplay(args))
+            args.AddMenuItem(teleportWorldItem.Get());
     }
 
     private void OnAddon(AddonEvent type, AddonArgs? args)
@@ -118,49 +355,47 @@ public unsafe class OptimizedFriendList : DailyModuleBase
             case AddonEvent.PostSetup:
                 if (FriendList != null)
                 {
-                    SearchInputNode ??= new()
+                    searchInputNode ??= new()
                     {
-                        IsVisible     = true,
                         Position      = new(10f, 425f),
                         Size          = new(200.0f, 35f),
                         MaxCharacters = 20,
                         ShowLimitText = true,
                         OnInputReceived = x =>
                         {
-                            SearchString = x.ToString();
-                            ApplySearchFilter(SearchString, TaskHelper);
+                            searchString = x.ToString();
+                            ApplySearchFilter(searchString, TaskHelper);
                         },
                         OnInputComplete = x =>
                         {
-                            SearchString = x.ToString();
-                            ApplySearchFilter(SearchString, TaskHelper);
-                        },
+                            searchString = x.ToString();
+                            ApplySearchFilter(searchString, TaskHelper);
+                        }
                     };
 
-                    SearchInputNode.CursorNode.ScaleY        =  1.4f;
-                    SearchInputNode.CurrentTextNode.FontSize =  14;
-                    SearchInputNode.CurrentTextNode.Y        += 3f;
+                    searchInputNode.CursorNode.ScaleY        =  1.4f;
+                    searchInputNode.CurrentTextNode.FontSize =  14;
+                    searchInputNode.CurrentTextNode.Y        += 3f;
 
-                    SearchInputNode.AttachNode(FriendList->GetNodeById(20));
+                    searchInputNode.AttachNode(FriendList->GetNodeById(20));
 
-                    SearchSettingButtonNode ??= new()
+                    searchSettingButtonNode ??= new()
                     {
                         Position    = new(215f, 430f),
                         Size        = new(25f, 25f),
-                        IsVisible   = true,
-                        IsChecked   = ModuleConfig.SearchName,
+                        IsChecked   = config.SearchName,
                         IsEnabled   = true,
                         TexturePath = "ui/uld/CircleButtons_hr1.tex",
                         TextureSize = new(28, 28),
-                        OnClick     = () => SearchSettingAddon.Toggle(),
+                        OnClick     = () => searchSettingAddon.Toggle()
                     };
 
-                    SearchSettingButtonNode.AttachNode(FriendList->GetNodeById(20));
+                    searchSettingButtonNode.AttachNode(FriendList->GetNodeById(20));
 
-                    SearchString = string.Empty;
+                    searchString = string.Empty;
                 }
-                
-                if (Throttler.Throttle("OptimizedFriendList-OnRequestFriendList", 10_000))
+
+                if (Throttler.Shared.Throttle("OptimizedFriendList-OnRequestFriendList", 10_000))
                 {
                     var agent = AgentFriendlist.Instance();
                     if (agent == null) return;
@@ -169,307 +404,94 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                     if (info == null || info->EntryCount == 0) return;
 
                     var validCounter = 0;
+
                     for (var i = 0; i < info->CharDataSpan.Length; i++)
                     {
                         var chara = info->CharDataSpan[i];
                         if (chara.ContentId == 0) continue;
-                        
-                        DService.Instance().Framework.RunOnTick(() =>
-                        {
-                            if (FriendList == null) return;
-                            
-                            agent->RequestFriendInfo(chara.ContentId);
-                        }, TimeSpan.FromMilliseconds(10 * validCounter));
+
+                        DService.Instance().Framework.RunOnTick
+                        (
+                            () =>
+                            {
+                                if (FriendList == null) return;
+
+                                agent->RequestFriendInfo(chara.ContentId);
+                            },
+                            TimeSpan.FromMilliseconds(10 * validCounter)
+                        );
 
                         validCounter++;
                     }
-                    
+
                     if (validCounter > 0)
                     {
-                        DService.Instance().Framework.RunOnTick(() =>
-                        {
-                            if (FriendList == null) return;
+                        DService.Instance().Framework.RunOnTick
+                        (
+                            () =>
+                            {
+                                if (FriendList == null) return;
 
-                            ApplyDisplayModification(TaskHelper);
-                        }, TimeSpan.FromMilliseconds(10 * (validCounter + 1)));
+                                ApplyDisplayModification(TaskHelper);
+                            },
+                            TimeSpan.FromMilliseconds(10 * (validCounter + 1))
+                        );
                     }
                 }
-                
+
                 ApplyDisplayModification(TaskHelper);
                 break;
+            
             case AddonEvent.PreRequestedUpdate:
-                ApplySearchFilter(SearchString, TaskHelper);
+                ApplySearchFilter(searchString, TaskHelper);
                 ApplyDisplayModification(TaskHelper);
                 break;
+            
             case AddonEvent.PreFinalize:
-                SearchInputNode?.Dispose();
-                SearchInputNode = null;
-
-                SearchSettingButtonNode?.Dispose();
-                SearchSettingButtonNode = null;
-
-                Tokens.ForEach(x => OnlineDataManager.GetRequest<PlayerUsedNamesRequest>().Unsubscribe(x));
-                Tokens.Clear();
-                
-                InfoTokens.ForEach(x => OnlineDataManager.GetRequest<PlayerInfoRequest>().Unsubscribe(x));
-                InfoTokens.Clear();
-                
-                Utf8Strings.ForEach(x =>
-                {
-                    var ptr = (Utf8String*)x;
-                    if (ptr == null) return;
-                    
-                    ptr->Dtor(true);
-                });
-                Utf8Strings.Clear();
+                searchInputNode = null;
+                searchSettingButtonNode = null;
+                infoTokens.Clear();
                 break;
         }
     }
 
     #endregion
 
-    private static void ReplaceAtkString(int index, Utf8String* newString)
+    private class Config : ModuleConfig
     {
-        if (newString == null) return;
-        
-        Utf8Strings.Add((nint)newString);
-        AtkStage.Instance()->GetStringArrayData(StringArrayType.FriendList)->StringArray[index] = newString->StringPtr;
-    }
+        public ConcurrentDictionary<ulong, PlayerInfo> PlayerInfos = [];
 
-    private static void ApplyDisplayModification(TaskHelper? taskHelper)
-    {
-        var addon = FriendList;
-        if (!addon->IsAddonAndNodesReady()) return;
+        public bool[] IgnoredGroup = new bool[8];
 
-        var info = InfoProxyFriendList.Instance();
-        
-        var isAnyUpdate = false;
-        for (var i = 0; i < info->EntryCount; i++)
-        {
-            var data = info->CharDataSpan[i];
-
-            var existedName = SeString.Parse(AtkStage.Instance()->GetStringArrayData(StringArrayType.FriendList)->StringArray[0 + (5 * i)].Value).TextValue;
-            if (existedName == LuminaWrapper.GetAddonText(964))
-            {
-                isAnyUpdate = true;
-                RestoreEntryData(i, data.ContentId, taskHelper);
-            }
-            
-            if (!ModuleConfig.PlayerInfos.TryGetValue(data.ContentId, out var configInfo)) continue;
-            
-            if (!string.IsNullOrWhiteSpace(configInfo.Nickname) && existedName != configInfo.Nickname)
-            {
-                isAnyUpdate = true;
-                
-                var nicknameBuilder = new SeStringBuilder();
-                nicknameBuilder.AddUiForeground($"{configInfo.Nickname}", 37);
-                
-                var nicknameString = Utf8String.FromSequence(nicknameBuilder.Build().EncodeWithNullTerminator());
-                
-                // 名字
-                ReplaceAtkString(0 + (5 * i), nicknameString);
-            }
-
-            var ptr           = AtkStage.Instance()->GetStringArrayData(StringArrayType.FriendList)->StringArray[3 + (5 * i)];
-            var existedRemark = SeString.Parse(ptr.Value).TextValue;
-            if (!string.IsNullOrWhiteSpace(configInfo.Remark))
-            {
-                var remarkText = $"{LuminaWrapper.GetAddonText(13294).TrimEnd(':')}: {configInfo.Remark}" +
-                                 (string.IsNullOrWhiteSpace(configInfo.Nickname)
-                                      ? string.Empty
-                                      : $"\n{LuminaWrapper.GetAddonText(9818)}: {data.NameString}");
-                
-                if (remarkText == existedRemark) continue;
-                isAnyUpdate = true;
-
-                var remarkString = Utf8String.FromString(remarkText);
-                
-                // 在线状态
-                ReplaceAtkString(3 + (5 * i), remarkString);
-            }
-        }
-        
-        if (!isAnyUpdate || taskHelper == null) return;
-
-        RequestInfoUpdate(taskHelper);
-    }
-
-    private static void RequestInfoUpdate(TaskHelper taskHelper)
-    {
-        taskHelper.Abort();
-        
-        if (FriendList == null) return;
-        
-        taskHelper.Enqueue(() =>
-        {
-            if (FriendList == null) return;
-            FriendList->OnRequestedUpdate(AtkStage.Instance()->GetNumberArrayData(), AtkStage.Instance()->GetStringArrayData());
-        });
-        taskHelper.DelayNext(100);
-        taskHelper.Enqueue(() =>
-        {
-            if (FriendList == null) return;
-            FriendList->OnRequestedUpdate(AtkStage.Instance()->GetNumberArrayData(), AtkStage.Instance()->GetStringArrayData());
-        });
-    }
-
-    private static bool MatchesSearch(string filter)
-    {
-        if (string.IsNullOrWhiteSpace(SearchString)) 
-            return true;
-        
-        if (string.IsNullOrWhiteSpace(filter)) 
-            return false;
-        
-        if (SearchString.StartsWith('^')) 
-            return filter.StartsWith(SearchString[1..], StringComparison.InvariantCultureIgnoreCase);
-        
-        if (SearchString.EndsWith('$')) 
-            return filter.EndsWith(SearchString[..^1], StringComparison.InvariantCultureIgnoreCase);
-        
-        return filter.Contains(SearchString, StringComparison.InvariantCultureIgnoreCase);
-    }
-
-    protected static void ApplySearchFilter(string filter, TaskHelper? taskHelper)
-    {
-        var info = InfoProxyFriendList.Instance();
-        if (string.IsNullOrWhiteSpace(filter))
-        {
-            info->ApplyFilters();
-            return;
-        }
-
-        var resets = new Dictionary<ulong, uint>();
-        var resetFilterGroup = info->FilterGroup;
-        info->FilterGroup = InfoProxyCommonList.DisplayGroup.None;
-        
-        var entryCount = info->GetEntryCount();
-        for (var i = 0; i < entryCount; i++)
-        {
-            var entry = info->GetEntry((uint)i);
-            if (entry == null) continue;
-            
-            var data = info->CharDataSpan[i];
-            resets.Add(entry->ContentId, entry->ExtraFlags);
-
-            if (ModuleConfig.IgnoredGroup[(int)entry->Group])
-            {
-                entry->ExtraFlags = (entry->ExtraFlags & 0xFFFF) | ((uint)(1 & 0xFF) << 16); // 添加隐藏标记
-                continue;
-            }
-
-            var matchResult = false;
-            PlayerInfo configInfo = null;
-            
-            if (ModuleConfig.SearchName)
-            {
-                var entryNameString = entry->NameString;
-                if (string.IsNullOrEmpty(entry->NameString)) // 搜索会导致非本大区角色被重新刷新为（无法获得角色情报） 需要重新配置
-                    RestoreEntryData(i, data.ContentId, taskHelper, name => entryNameString = name);
-
-                matchResult |= MatchesSearch(entryNameString);
-            } 
-            
-            if (ModuleConfig.SearchNickname)
-            {
-                if (ModuleConfig.PlayerInfos.TryGetValue(data.ContentId, out configInfo))
-                    matchResult |= MatchesSearch(configInfo.Nickname);
-            }
-            
-            if (ModuleConfig.SearchRemark)
-            {
-                if (ModuleConfig.PlayerInfos.TryGetValue(data.ContentId, out configInfo))
-                    matchResult |= MatchesSearch(configInfo.Remark);
-            }
-
-            if ((resetFilterGroup == InfoProxyCommonList.DisplayGroup.All || entry->Group == resetFilterGroup) && matchResult)
-                entry->ExtraFlags &= 0xFFFF; // 去除隐藏标记
-            else
-                entry->ExtraFlags = (entry->ExtraFlags & 0xFFFF) | ((uint)(1 & 0xFF) << 16);
-        }
-        
-        info->ApplyFilters();
-        info->FilterGroup = resetFilterGroup;
-        
-        foreach (var pair in resets)
-        {
-            var entry = info->GetEntryByContentId(pair.Key);
-            entry->ExtraFlags = pair.Value;
-        }
-    }
-
-    private static void RestoreEntryData(int index, ulong contentID, TaskHelper? taskHelper, Action<string>? onNameResolved = null)
-    {
-        var request = OnlineDataManager.GetRequest<PlayerInfoRequest>();
-        var token = request.Subscribe(contentID, OnlineDataManager.GetWorldRegion(GameState.HomeWorld), (name, worldID) =>
-        {
-            if (FriendList == null) return;
-
-            var nameBuilder = new SeStringBuilder();
-            nameBuilder.AddUiForeground($"{name}", 32);
-
-            var nameString = Utf8String.FromSequence(nameBuilder.Build().EncodeWithNullTerminator());
-            ReplaceAtkString(0 + (5 * index), nameString);
-
-            var worldBuilder = new SeStringBuilder();
-            worldBuilder.AddText($"{LuminaWrapper.GetWorldName(worldID)}");
-            worldBuilder.AddIcon(BitmapFontIcon.CrossWorld);
-            worldBuilder.AddText($"{LuminaWrapper.GetWorldDCName(worldID)}");
-
-            var worldString = Utf8String.FromSequence(worldBuilder.Build().EncodeWithNullTerminator());
-            ReplaceAtkString(1 + (5 * index), worldString);
-
-            var onlineStatusString = Utf8String.FromString(LuminaWrapper.GetAddonText(1351));
-            ReplaceAtkString(3 + (5 * index), onlineStatusString);
-
-            onNameResolved?.Invoke(name);
-
-            if (taskHelper != null)
-                RequestInfoUpdate(taskHelper);
-        });
-        InfoTokens.Add(token);
-    }
-
-    [IPCProvider("DailyRoutines.Modules.OptimizedFriendlist.GetRemarkByContentID")]
-    private string GetRemarkByContentID(ulong contentID) =>
-        ModuleConfig.PlayerInfos.TryGetValue(contentID, out var info) ? !string.IsNullOrWhiteSpace(info.Remark) ? info.Remark : string.Empty : string.Empty;
-    
-    [IPCProvider("DailyRoutines.Modules.OptimizedFriendlist.GetNicknameByContentID")]
-    private string GetNicknameByContentID(ulong contentID) =>
-        ModuleConfig.PlayerInfos.TryGetValue(contentID, out var info) ? !string.IsNullOrWhiteSpace(info.Nickname) ? info.Nickname : string.Empty : string.Empty; 
-
-    private class Config : ModuleConfiguration
-    {
-        public Dictionary<ulong, PlayerInfo> PlayerInfos = [];
-        
         public bool SearchName     = true;
         public bool SearchNickname = true;
         public bool SearchRemark   = true;
-
-        public bool[] IgnoredGroup = new bool[8];
     }
 
-    private class DRFriendlistRemarkEdit(OptimizedFriendList instance) : NativeAddon
+    private class DRFriendlistRemarkEdit
+    (
+        OptimizedFriendList instance
+    ) : NativeAddon
     {
-        public ulong  ContentID { get; private set; }
-        public string Name      { get; private set; } = string.Empty;
-        public string WorldName { get; private set; } = string.Empty;
+        private TextButtonNode clearButtonNode;
 
-        private DailyModuleBase Instance { get; init; } = instance;
+        private TextButtonNode confirmButtonNode;
+        private TextInputNode  nicknameInputNode;
 
-        private TextNode PlayerNameNode;
+        private TextNode nicknameNode;
 
-        private TextNode      NicknameNode;
-        private TextInputNode NicknameInputNode;
-        
-        private TextNode               RemarkNode;
-        private TextMultiLineInputNode RemarkInputNode;
+        private TextNode               playerNameNode;
+        private TextButtonNode         quertUsedNameButtonNode;
+        private TextMultiLineInputNode remarkInputNode;
 
-        private TextButtonNode ConfirmButtonNode;
-        private TextButtonNode ClearButtonNode;
-        private TextButtonNode QuertUsedNameButtonNode;
-        
-        protected override void OnSetup(AtkUnitBase* addon)
+        private TextNode remarkNode;
+        public  ulong    ContentID { get; private set; }
+        public  string   Name      { get; private set; } = string.Empty;
+        public  string   WorldName { get; private set; } = string.Empty;
+
+        private OptimizedFriendList Instance { get; init; } = instance;
+
+        protected override void OnSetup(AtkUnitBase* addon, Span<AtkValue> atkValues)
         {
             if (ContentID == 0 || string.IsNullOrWhiteSpace(Name) || string.IsNullOrWhiteSpace(WorldName))
             {
@@ -477,41 +499,39 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 return;
             }
 
-            var existedNickname = ModuleConfig.PlayerInfos.GetValueOrDefault(ContentID, new()).Nickname;
-            var existedRemark   = ModuleConfig.PlayerInfos.GetValueOrDefault(ContentID, new()).Remark;
+            var existedNickname = Instance.config.PlayerInfos.GetValueOrDefault(ContentID, new()).Nickname;
+            var existedRemark   = Instance.config.PlayerInfos.GetValueOrDefault(ContentID, new()).Remark;
 
-            PlayerNameNode = new()
-            {
-                IsVisible = true,
-                Position  = new(10, 36),
-                Size      = new(100, 48),
-                SeString = new SeStringBuilder()
-                           .Append(Name)
-                           .AddIcon(BitmapFontIcon.CrossWorld)
-                           .Append(WorldName)
-                           .Build()
-                           .Encode(),
-                FontSize         = 24,
-                AlignmentType    = AlignmentType.Left,
-                TextFlags        = TextFlags.Bold,
-            };
-            PlayerNameNode.AttachNode(this);
-            
-            NicknameNode = new()
-            {
-                IsVisible        = true,
-                Position         = new(10, 80),
-                Size             = new(100, 28),
-                SeString         = $"{LuminaWrapper.GetAddonText(15207)}",
-                FontSize         = 14,
-                AlignmentType    = AlignmentType.Left,
-                TextFlags        = TextFlags.Bold,
-            };
-            NicknameNode.AttachNode(this);
+            using var rented = new RentedSeStringBuilder();
+            rented.Builder
+                  .Append(Name)
+                  .AppendIcon((uint)BitmapFontIcon.CrossWorld)
+                  .Append(WorldName);
 
-            NicknameInputNode = new()
+            playerNameNode = new()
             {
-                IsVisible     = true,
+                Position      = new(10, 36),
+                Size          = new(100, 48),
+                String        = rented.Builder.ToReadOnlySeString(),
+                FontSize      = 24,
+                AlignmentType = AlignmentType.Left,
+                TextFlags     = TextFlags.Bold
+            };
+            playerNameNode.AttachNode(this);
+
+            nicknameNode = new()
+            {
+                Position      = new(10, 80),
+                Size          = new(100, 28),
+                String        = $"{LuminaWrapper.GetAddonText(15207)}",
+                FontSize      = 14,
+                AlignmentType = AlignmentType.Left,
+                TextFlags     = TextFlags.Bold
+            };
+            nicknameNode.AttachNode(this);
+
+            nicknameInputNode = new()
+            {
                 Position      = new(10, 108),
                 Size          = new(440, 28),
                 MaxCharacters = 64,
@@ -519,24 +539,22 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 AutoSelectAll = false,
                 String        = existedNickname
             };
-            NicknameInputNode.AttachNode(this);
-            
-            RemarkNode = new()
-            {
-                IsVisible        = true,
-                Position         = new(10, 140),
-                Size             = new(100, 28),
-                SeString         = $"{LuminaWrapper.GetAddonText(13294).TrimEnd(':')}",
-                FontSize         = 14,
-                AlignmentType    = AlignmentType.Left,
-                TextFlags        = TextFlags.Bold,
-            };
-            
-            RemarkNode.AttachNode(this);
+            nicknameInputNode.AttachNode(this);
 
-            RemarkInputNode = new()
+            remarkNode = new()
             {
-                IsVisible     = true,
+                Position      = new(10, 140),
+                Size          = new(100, 28),
+                String        = $"{LuminaWrapper.GetAddonText(13294).TrimEnd(':')}",
+                FontSize      = 14,
+                AlignmentType = AlignmentType.Left,
+                TextFlags     = TextFlags.Bold
+            };
+
+            remarkNode.AttachNode(this);
+
+            remarkInputNode = new()
+            {
                 Position      = new(10, 168),
                 MaxCharacters = 1024,
                 MaxLines      = 5,
@@ -545,79 +563,62 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 String        = existedRemark
             };
 
-            RemarkInputNode.Size = new(440, (RemarkInputNode.CurrentTextNode.LineSpacing * 5) + 20);
-            
-            RemarkInputNode.AttachNode(this);
+            remarkInputNode.Size = new(440, remarkInputNode.CurrentTextNode.LineSpacing * 5 + 20);
 
-            ConfirmButtonNode = new()
+            remarkInputNode.AttachNode(this);
+
+            confirmButtonNode = new()
             {
                 Position  = new(10, 264),
                 Size      = new(140, 28),
-                IsVisible = true,
-                SeString  = GetLoc("Confirm"),
+                String    = Lang.Get("Confirm"),
                 OnClick = () =>
                 {
-                    ModuleConfig.PlayerInfos[ContentID] = new()
+                    Instance.config.PlayerInfos[ContentID] = new()
                     {
                         ContentID = ContentID,
                         Name      = Name,
-                        Nickname  = NicknameInputNode.String,
-                        Remark    = RemarkInputNode.String,
+                        Nickname  = nicknameInputNode.String.ToString(),
+                        Remark    = remarkInputNode.String.ToString()
                     };
-                    ModuleConfig.Save(Instance);
-                    
+                    Instance.config.Save(Instance);
+
                     InfoProxyFriendList.Instance()->RequestData();
                     Close();
-                },
+                }
             };
-            ConfirmButtonNode.AttachNode(this);
-            
-            ClearButtonNode = new()
+            confirmButtonNode.AttachNode(this);
+
+            clearButtonNode = new()
             {
                 Position  = new(160, 264),
                 Size      = new(140, 28),
-                IsVisible = true,
-                SeString  = GetLoc("Clear"),
+                String    = Lang.Get("Clear"),
                 OnClick = () =>
                 {
-                    ModuleConfig.PlayerInfos.Remove(ContentID);
-                    ModuleConfig.Save(Instance);
-                    
+                    Instance.config.PlayerInfos.TryRemove(ContentID, out _);
+                    Instance.config.Save(Instance);
+
                     InfoProxyFriendList.Instance()->RequestData();
                     Close();
-                },
+                }
             };
-            ClearButtonNode.AttachNode(this);
-            
-            QuertUsedNameButtonNode = new()
+            clearButtonNode.AttachNode(this);
+
+            quertUsedNameButtonNode = new()
             {
                 Position  = new(310, 264),
                 Size      = new(140, 28),
-                IsVisible = true,
-                SeString  = GetLoc("OptimizedFriendList-ObtainUsedNames"),
+                String    = Lang.Get("OptimizedFriendList-ObtainUsedNames"),
                 OnClick = () =>
                 {
-                    var request = OnlineDataManager.GetRequest<PlayerUsedNamesRequest>();
-                    Tokens.Add(request.Subscribe(ContentID, OnlineDataManager.GetWorldRegion(GameState.HomeWorld), data =>
-                    {
-                        if (data.Count == 0)
-                            Chat(GetLoc("OptimizedFriendList-FriendUseNamesNotFound", Name));
-                        else
-                        {
-                            Chat($"{GetLoc("OptimizedFriendList-FriendUseNamesFound", Name)}:");
-                            var counter = 1;
-                            foreach (var nameChange in data)
-                            {
-                                Chat($"{counter}. {nameChange.ChangedTime}:");
-                                Chat($"     {nameChange.BeforeName} -> {nameChange.AfterName}:");
-
-                                counter++;
-                            }
-                        }
-                    }));
-                },
+                    var contentID = ContentID;
+                    var name      = Name;
+                    var region    = WorldRegionResolver.Resolve(GameState.HomeWorld);
+                    _ = OptimizedFriendListAsyncHelper.QueryUsedNamesAsync(contentID, name, region);
+                }
             };
-            QuertUsedNameButtonNode.AttachNode(this);
+            quertUsedNameButtonNode.AttachNode(this);
         }
 
         protected override void OnUpdate(AtkUnitBase* addon)
@@ -638,93 +639,133 @@ public unsafe class OptimizedFriendList : DailyModuleBase
             ContentID = contentID;
             Name      = name;
             WorldName = worldName;
-            
+
             Open();
         }
     }
 
-    private class DRFriendlistSearchSetting(DailyModuleBase instance, TaskHelper taskHelper) : NativeAddon
+    private static class OptimizedFriendListAsyncHelper
     {
-        private DailyModuleBase Instance   { get; init; } = instance;
-        private TaskHelper      TaskHelper { get; init; } = taskHelper;
-        
-        protected override void OnSetup(AtkUnitBase* addon)
+        public static Task QueryUsedNamesAsync(ulong contentID, string name, WorldRegion region) =>
+            RemoteUsedNames.GetFreshAsync(contentID, region).AsTask().ContinueWith
+            (
+                task =>
+                {
+                    if (task.IsFaulted)
+                    {
+                        DLog.Error("获取好友曾用名时发生错误", task.Exception?.GetBaseException() ?? new InvalidOperationException("未提供异常信息"));
+                        return Task.CompletedTask;
+                    }
+
+                    if (task.IsCanceled)
+                        return Task.CompletedTask;
+
+                    var data = task.Result;
+                    return DService.Instance().Framework.RunOnTick
+                    (() =>
+                        {
+                            if (data.Count == 0)
+                            {
+                                NotifyHelper.Instance().Chat(Lang.Get("OptimizedFriendList-FriendUseNamesNotFound", name));
+                                return;
+                            }
+
+                            NotifyHelper.Instance().Chat($"{Lang.Get("OptimizedFriendList-FriendUseNamesFound", name)}:");
+                            var counter = 1;
+
+                            foreach (var nameChange in data)
+                            {
+                                NotifyHelper.Instance().Chat($"{counter}. {nameChange.ChangedTime}:");
+                                NotifyHelper.Instance().Chat($"     {nameChange.BeforeName} -> {nameChange.AfterName}:");
+                                counter++;
+                            }
+                        }
+                    );
+                },
+                TaskScheduler.Default
+            ).Unwrap();
+    }
+
+    private class DRFriendlistSearchSetting
+    (
+        OptimizedFriendList instance,
+        TaskHelper          taskHelper
+    ) : NativeAddon
+    {
+        private OptimizedFriendList Instance   { get; init; } = instance;
+        private TaskHelper          TaskHelper { get; init; } = taskHelper;
+
+        protected override void OnSetup(AtkUnitBase* addon, Span<AtkValue> atkValues)
         {
             var searchTypeTitleNode = new TextNode
             {
-                IsVisible = true,
-                SeString  = GetLoc("OptimizedFriendList-SearchType"),
+                String    = Lang.Get("OptimizedFriendList-SearchType"),
                 FontSize  = 16,
                 TextFlags = TextFlags.AutoAdjustNodeSize,
                 Position  = new(10f, 42f)
             };
             searchTypeTitleNode.AttachNode(this);
-            
+
             var searchTypeLayoutNode = new VerticalListNode
             {
-                IsVisible = true,
                 Position  = new(20f, searchTypeTitleNode.Position.Y + 28f),
-                Alignment = VerticalListAlignment.Left,
+                Alignment = VerticalListAlignment.Left
             };
-            
+
             var nameCheckboxNode = new CheckboxNode
             {
                 Size      = new(80f, 20f),
-                IsVisible = true,
-                IsChecked = ModuleConfig.SearchName,
+                IsChecked = Instance.config.SearchName,
                 IsEnabled = true,
-                SeString  = GetLoc("Name"),
+                String    = Lang.Get("Name"),
                 OnClick = newState =>
                 {
-                    ModuleConfig.SearchName = newState;
-                    ModuleConfig.Save(Instance);
+                    Instance.config.SearchName = newState;
+                    Instance.config.Save(Instance);
 
-                    ApplySearchFilter(SearchString, TaskHelper);
-                },
+                    Instance.ApplySearchFilter(Instance.searchString, TaskHelper);
+                }
             };
             searchTypeLayoutNode.Height += searchTypeTitleNode.Height;
 
             var nicknameCheckboxNode = new CheckboxNode
             {
                 Size      = new(80f, 20f),
-                IsVisible = true,
-                IsChecked = ModuleConfig.SearchNickname,
+                IsChecked = Instance.config.SearchNickname,
                 IsEnabled = true,
-                SeString  = LuminaWrapper.GetAddonText(15207),
+                String    = LuminaWrapper.GetAddonText(15207),
                 OnClick = newState =>
                 {
-                    ModuleConfig.SearchNickname = newState;
-                    ModuleConfig.Save(Instance);
+                    Instance.config.SearchNickname = newState;
+                    Instance.config.Save(Instance);
 
-                    ApplySearchFilter(SearchString, TaskHelper);
-                },
+                    Instance.ApplySearchFilter(Instance.searchString, TaskHelper);
+                }
             };
             searchTypeLayoutNode.Height += nicknameCheckboxNode.Height;
 
             var remarkCheckboxNode = new CheckboxNode
             {
                 Size      = new(80f, 20f),
-                IsVisible = true,
-                IsChecked = ModuleConfig.SearchRemark,
+                IsChecked = Instance.config.SearchRemark,
                 IsEnabled = true,
-                SeString  = LuminaWrapper.GetAddonText(13294).TrimEnd(':'),
+                String    = LuminaWrapper.GetAddonText(13294).TrimEnd(':'),
                 OnClick = newState =>
                 {
-                    ModuleConfig.SearchRemark = newState;
-                    ModuleConfig.Save(Instance);
+                    Instance.config.SearchRemark = newState;
+                    Instance.config.Save(Instance);
 
-                    ApplySearchFilter(SearchString, TaskHelper);
-                },
+                    Instance.ApplySearchFilter(Instance.searchString, TaskHelper);
+                }
             };
             searchTypeLayoutNode.Height += remarkCheckboxNode.Height;
-            
+
             searchTypeLayoutNode.AddNode([nameCheckboxNode, nicknameCheckboxNode, remarkCheckboxNode]);
             searchTypeLayoutNode.AttachNode(this);
-            
+
             var searchGroupIgnoreTitleNode = new TextNode
             {
-                IsVisible = true,
-                SeString  = GetLoc("OptimizedFriendList-SearchIgnoreGroup"),
+                String    = Lang.Get("OptimizedFriendList-SearchIgnoreGroup"),
                 FontSize  = 16,
                 TextFlags = TextFlags.AutoAdjustNodeSize,
                 Position  = new(10f, searchTypeLayoutNode.Position.Y + searchTypeLayoutNode.Height + 12f)
@@ -733,38 +774,35 @@ public unsafe class OptimizedFriendList : DailyModuleBase
 
             var searchGroupIgnoreLayoutNode = new VerticalListNode
             {
-                IsVisible = true,
                 Position  = new(20f, searchGroupIgnoreTitleNode.Position.Y + 28f),
-                Alignment = VerticalListAlignment.Left,
+                Alignment = VerticalListAlignment.Left
             };
 
-            var groupFormatText = LuminaWrapper.GetAddonTextSeString(12925);
-            
+
             for (var i = 0; i < 8; i++)
             {
                 var index = i;
-                
-                groupFormatText.Payloads[1] = new TextPayload($"{index + 1}");
+
+                var groupFormatText = DService.Instance().SeStringEvaluator.EvaluateFromAddon(12925, [index + 1]);
                 var groupCheckboxNode = new CheckboxNode
                 {
                     Size      = new(80f, 20f),
-                    IsVisible = true,
-                    IsChecked = ModuleConfig.IgnoredGroup[i],
+                    IsChecked = Instance.config.IgnoredGroup[i],
                     IsEnabled = true,
-                    SeString  = groupFormatText.Encode(),
+                    String    = groupFormatText,
                     OnClick = newState =>
                     {
-                        ModuleConfig.IgnoredGroup[index] = newState;
-                        ModuleConfig.Save(Instance);
+                        Instance.config.IgnoredGroup[index] = newState;
+                        Instance.config.Save(Instance);
 
-                        ApplySearchFilter(SearchString, TaskHelper);
-                    },
+                        Instance.ApplySearchFilter(Instance.searchString, TaskHelper);
+                    }
                 };
-                
+
                 searchGroupIgnoreLayoutNode.Height += groupCheckboxNode.Height;
                 searchGroupIgnoreLayoutNode.AddNode(groupCheckboxNode);
             }
-            
+
             searchGroupIgnoreLayoutNode.AttachNode(this);
         }
 
@@ -774,10 +812,14 @@ public unsafe class OptimizedFriendList : DailyModuleBase
                 Close();
         }
     }
-    
-    private class ModifyInfoMenuItem(TaskHelper TaskHelper) : MenuItemBase
+
+    private class ModifyInfoMenuItem
+    (
+        OptimizedFriendList instance,
+        TaskHelper          taskHelper
+    ) : MenuItemBase
     {
-        public override string Name       { get; protected set; } = GetLoc("OptimizedFriendList-ContextMenu-NicknameAndRemark");
+        public override string Name       { get; protected set; } = Lang.Get("OptimizedFriendList-ContextMenu-NicknameAndRemark");
         public override string Identifier { get; protected set; } = nameof(OptimizedFriendList);
 
         public override bool IsDisplay(IMenuOpenedArgs args) =>
@@ -789,51 +831,49 @@ public unsafe class OptimizedFriendList : DailyModuleBase
         {
             if (args.Target is not MenuTargetDefault target) return;
 
-            if (RemarkEditAddon.IsOpen)
+            if (instance.remarkEditAddon.IsOpen)
             {
-                RemarkEditAddon.Close();
+                instance.remarkEditAddon.Close();
 
-                TaskHelper.DelayNext(100);
-                TaskHelper.Enqueue(() => !RemarkEditAddon.IsOpen);
-                TaskHelper.Enqueue(() => RemarkEditAddon.OpenWithData(target.TargetContentId, target.TargetName, target.TargetHomeWorld.Value.Name.ToString()));
+                taskHelper.DelayNext(100);
+                taskHelper.Enqueue(() => !instance.remarkEditAddon.IsOpen);
+                taskHelper.Enqueue(() => instance.remarkEditAddon.OpenWithData(target.TargetContentId, target.TargetName, target.TargetHomeWorld.Value.Name.ToString()));
             }
             else
-                RemarkEditAddon.OpenWithData(target.TargetContentId, target.TargetName, target.TargetHomeWorld.Value.Name.ToString());
+                instance.remarkEditAddon.OpenWithData(target.TargetContentId, target.TargetName, target.TargetHomeWorld.Value.Name.ToString());
 
-            ApplySearchFilter(SearchString, TaskHelper);
+            instance.ApplySearchFilter(instance.searchString, taskHelper);
         }
     }
-    
+
     private class TeleportFriendZoneMenuItem : MenuItemBase
     {
-        public override string Name       { get; protected set; } = GetLoc("OptimizedFriendList-ContextMenu-TeleportToFriendZone");
+        private         uint   aetheryteID;
+        public override string Name       { get; protected set; } = Lang.Get("OptimizedFriendList-ContextMenu-TeleportToFriendZone");
         public override string Identifier { get; protected set; } = nameof(OptimizedFriendList);
 
-        
-        private uint AetheryteID;
-
-        protected override void OnClicked(IMenuItemClickedArgs args) => 
-            Telepo.Instance()->Teleport(AetheryteID, 0);
+        protected override void OnClicked(IMenuItemClickedArgs args) =>
+            Telepo.Instance()->Teleport(aetheryteID, 0);
 
         public override bool IsDisplay(IMenuOpenedArgs args) =>
             args is { AddonName : "FriendList", Target: MenuTargetDefault { TargetCharacter: not null } target } &&
-            GetAetheryteID(target.TargetCharacter.Location.RowId, out AetheryteID);
+            GetAetheryteID(target.TargetCharacter.Location.RowId, out aetheryteID);
 
         private static bool GetAetheryteID(uint zoneID, out uint aetheryteID)
         {
             aetheryteID = 0;
             if (zoneID == 0 || zoneID == GameState.TerritoryType) return false;
-            
+
             zoneID = zoneID switch
             {
                 128 => 129,
                 133 => 132,
                 131 => 130,
                 399 => 478,
-                _ => zoneID
+                _   => zoneID
             };
             if (zoneID == GameState.TerritoryType) return false;
-            
+
             aetheryteID = DService.Instance().AetheryteList
                                   .Where(aetheryte => aetheryte.TerritoryID == zoneID)
                                   .Select(aetheryte => aetheryte.AetheryteID)
@@ -845,34 +885,44 @@ public unsafe class OptimizedFriendList : DailyModuleBase
 
     private class TeleportFriendWorldMenuItem : MenuItemBase
     {
-        public override string Name       { get; protected set; } = GetLoc("OptimizedFriendList-ContextMenu-TeleportToFriendWorld");
+        private         uint   friendWorldID;
+        public override string Name       { get; protected set; } = Lang.Get("OptimizedFriendList-ContextMenu-TeleportToFriendWorld");
         public override string Identifier { get; protected set; } = nameof(OptimizedFriendList);
-
-        
-        private uint TargetWorldID;
 
         public override bool IsDisplay(IMenuOpenedArgs args)
         {
-            if ((ModuleManager.IsModuleEnabled("FastWorldTravel") ?? false) &&
+            if ((ModuleManager.Instance().IsModuleEnabled("FastWorldTravel") ?? false)                                                              &&
                 args is { AddonName: "FriendList", Target: MenuTargetDefault { TargetCharacter.CurrentWorld.RowId: var targetWorldID } } &&
                 targetWorldID != GameState.CurrentWorld)
             {
-                TargetWorldID = targetWorldID;
+                friendWorldID = targetWorldID;
                 return true;
             }
 
             return false;
         }
 
-        protected override void OnClicked(IMenuItemClickedArgs args) => 
-            ChatManager.Instance().SendMessage($"/pdr worldtravel {LuminaWrapper.GetWorldName(TargetWorldID)}");
+        protected override void OnClicked(IMenuItemClickedArgs args) =>
+            ChatManager.Instance().SendMessage($"/pdr worldtravel {LuminaWrapper.GetWorldName(friendWorldID)}");
     }
-    
-    public class PlayerInfo
+
+    private class PlayerInfo
     {
         public ulong  ContentID { get; set; }
         public string Name      { get; set; } = string.Empty;
         public string Nickname  { get; set; } = string.Empty;
         public string Remark    { get; set; } = string.Empty;
     }
+    
+    #region 常量
+
+    [IPCProvider("DailyRoutines.Modules.OptimizedFriendlist.GetRemarkByContentID")]
+    private string GetRemarkByContentID(ulong contentID) =>
+        config.PlayerInfos.TryGetValue(contentID, out var info) ? !string.IsNullOrWhiteSpace(info.Remark) ? info.Remark : string.Empty : string.Empty;
+
+    [IPCProvider("DailyRoutines.Modules.OptimizedFriendlist.GetNicknameByContentID")]
+    private string GetNicknameByContentID(ulong contentID) =>
+        config.PlayerInfos.TryGetValue(contentID, out var info) ? !string.IsNullOrWhiteSpace(info.Nickname) ? info.Nickname : string.Empty : string.Empty;
+
+    #endregion
 }

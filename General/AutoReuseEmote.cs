@@ -1,59 +1,55 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Managers;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
 using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
-namespace DailyRoutines.Modules;
+namespace DailyRoutines.ModulesPublic;
 
-public class AutoReuseEmote : DailyModuleBase
+// TODO: 加入右键菜单
+public class AutoReuseEmote : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoReuseEmoteTitle"),
-        Description = GetLoc("AutoReuseEmoteDescription", Command, GetLoc("AutoReuseEmote-CommandHelp")),
-        Category    = ModuleCategories.General,
+        Title       = Lang.Get("AutoReuseEmoteTitle"),
+        Description = Lang.Get("AutoReuseEmoteDescription", COMMAND, Lang.Get("AutoReuseEmote-CommandHelp")),
+        Category    = ModuleCategory.General,
         Author      = ["Xww"]
     };
 
-    private const string Command = "remote";
+    private CancellationTokenSource? cancelSource;
 
-    private static CancellationTokenSource? CancelSource;
-
-    protected override void Init()
-    {
-        CommandManager.AddSubCommand(Command, new(OnCommand) { HelpMessage = GetLoc("AutoReuseEmote-CommandHelp") });
-    }
+    protected override void Init() =>
+        CommandManager.Instance().AddSubCommand(COMMAND, new(OnCommand) { HelpMessage = Lang.Get("AutoReuseEmote-CommandHelp") });
 
     protected override void Uninit()
     {
-        CommandManager.RemoveSubCommand(Command);
+        CommandManager.Instance().RemoveSubCommand(COMMAND);
         CancelTokenAndNullify();
     }
 
-    private static void OnCommand(string command, string args)
+    private void OnCommand(string command, string args)
     {
         CancelTokenAndNullify();
 
         args = args.Trim();
         if (string.IsNullOrWhiteSpace(args)) return;
-        
+
         var spilited = args.Split(' ');
         if (spilited.Length is not (1 or 2)) return;
-        
+
         var emoteName = spilited[0];
         var repeatInterval = spilited.Length == 2 && int.TryParse(spilited[1], out var repeatIntervalTime)
                                  ? repeatIntervalTime
                                  : 2000;
         if (!TryParseEmoteByName(emoteName, out var emoteID)) return;
 
-        CancelSource = new();
-        DService.Instance().Framework.Run(() => UseEmoteByID(emoteID, repeatInterval, CancelSource), CancelSource.Token);
+        cancelSource = new();
+        DService.Instance().Framework.Run(() => UseEmoteByID(emoteID, repeatInterval, cancelSource), cancelSource.Token);
     }
 
     private static unsafe bool TryParseEmoteByName(string name, out ushort id)
@@ -62,32 +58,36 @@ public class AutoReuseEmote : DailyModuleBase
         name = name.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(name)) return false;
 
-        var first = LuminaGetter.Get<Emote>()
-                               .Where(x => !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
-                                           x.TextCommand.ValueNullable != null)
-                               .Where(x => x.Name.ToString().ToLowerInvariant() == name ||
-                                           x.TextCommand.Value.Command.ToString().ToLowerInvariant().Trim('/') ==
-                                           name)
-                               .FirstOrDefault();
+        var first = LuminaGetter
+                    .Get<Emote>()
+                    .Where
+                    (x => !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
+                          x.TextCommand.ValueNullable != null
+                    )
+                    .FirstOrDefault
+                    (x => x.Name.ToString().ToLowerInvariant() == name ||
+                          x.TextCommand.Value.Command.ToString().ToLowerInvariant().Trim('/') ==
+                          name
+                    );
         if (first.RowId == 0) return false;
         // 情感动作需要解锁
         if (first.UnlockLink != 0 && !UIState.Instance()->IsUnlockLinkUnlockedOrQuestCompleted(first.UnlockLink))
             return false;
-        
+
         id = (ushort)first.RowId;
         return true;
     }
 
-    private static void CancelTokenAndNullify()
+    private void CancelTokenAndNullify()
     {
-        if (CancelSource == null) return;
-        
-        CancelSource.Cancel();
-        CancelSource.Dispose();
-        CancelSource = null;
+        if (cancelSource == null) return;
+
+        cancelSource.Cancel();
+        cancelSource.Dispose();
+        cancelSource = null;
     }
 
-    private static async Task UseEmoteByID(ushort id, int interval, CancellationTokenSource cts)
+    private async Task UseEmoteByID(ushort id, int interval, CancellationTokenSource cts)
     {
         while (!cts.Token.IsCancellationRequested)
         {
@@ -99,20 +99,28 @@ public class AutoReuseEmote : DailyModuleBase
                     return;
                 }
             }
-            
+
             if (DService.Instance().ObjectTable.LocalPlayer == null ||
-                BetweenAreas || OccupiedInEvent || DService.Instance().Condition[ConditionFlag.InCombat])
+                DService.Instance().Condition.IsBetweenAreas        ||
+                DService.Instance().Condition.IsOccupiedInEvent     ||
+                DService.Instance().Condition[ConditionFlag.InCombat])
             {
                 CancelTokenAndNullify();
                 return;
             }
-            
+
             unsafe
             {
-                AgentEmote.Instance()->ExecuteEmote(id, default, false, false);
+                AgentEmote.Instance()->ExecuteEmote(id, null, false, false);
             }
-            
+
             await Task.Delay(interval, cts.Token);
         }
     }
+
+    #region 常量
+
+    private const string COMMAND = "remote";
+
+    #endregion
 }

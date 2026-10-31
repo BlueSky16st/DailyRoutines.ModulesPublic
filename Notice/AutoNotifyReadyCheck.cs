@@ -1,40 +1,42 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using DailyRoutines.Abstracts;
-using Dalamud.Game.Text;
-using Dalamud.Game.Text.SeStringHandling;
+using System.Collections.Frozen;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class AutoNotifyReadyCheck : DailyModuleBase
+public class AutoNotifyReadyCheck : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoNotifyReadyCheckTitle"),
-        Description = GetLoc("AutoNotifyReadyCheckDescription"),
-        Category    = ModuleCategories.Notice,
+        Title       = Lang.Get("AutoNotifyReadyCheckTitle"),
+        Description = Lang.Get("AutoNotifyReadyCheckDescription"),
+        Category    = ModuleCategory.Notice
     };
-    
+
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
 
-    private static readonly HashSet<ushort> ValidTypes = [57, 313, 569];
-    private static readonly string[] ValidStrings = ["发起了准备确认", "a ready check", "レディチェックを開始しました"];
+    protected override void Init() =>
+        LogMessageManager.Instance().RegPost(OnLogMessage);
 
-    protected override void Init() => 
-        DService.Instance().Chat.ChatMessage += OnChatMessage;
+    protected override void Uninit() =>
+        LogMessageManager.Instance().Unreg(OnLogMessage);
 
-    private static void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool ishandled)
+    private static void OnLogMessage(uint logMessageID, LogMessageQueueItem item)
     {
-        if (!ValidTypes.Contains((ushort)type)) return;
+        if (!ValidLogMessages.Contains(logMessageID)) return;
 
-        var content = message.TextValue;
-        if (!ValidStrings.Any(x => content.Contains(x, StringComparison.OrdinalIgnoreCase))) return;
-
-        NotificationInfo(content);
-        Speak(content);
+        NotifyHelper.Instance().NotificationInfo(LuminaWrapper.GetLogMessageText(3790));
+        NotifyHelper.Speak(LuminaWrapper.GetLogMessageText(3790));
     }
+    
+    #region 常量
 
-    protected override void Uninit() => 
-        DService.Instance().Chat.ChatMessage -= OnChatMessage;
+    private static readonly FrozenSet<uint> ValidLogMessages = [3790, 3791];
+
+    #endregion
 }

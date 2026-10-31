@@ -1,63 +1,65 @@
-using DailyRoutines.Abstracts;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Utility;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
+using OmenTools.Threading;
+using ContentsFinder = FFXIVClientStructs.FFXIV.Client.Game.UI.ContentsFinder;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class AutoDisplayDutyReadyLeftTime : DailyModuleBase
+public unsafe class AutoDisplayDutyReadyLeftTime : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoDisplayDutyReadyLeftTimeTitle"),
-        Description = GetLoc("AutoDisplayDutyReadyLeftTimeDescription"),
-        Category    = ModuleCategories.Combat,
-        PreviewImageURL = ["https://gh.atmoomen.top/raw.githubusercontent.com/AtmoOmen/StaticAssets/main/DailyRoutines/image/AutoDisplayDutyReadyLeftTime-UI.png"]
+        Title       = Lang.Get("AutoDisplayDutyReadyLeftTimeTitle"),
+        Description = Lang.Get("AutoDisplayDutyReadyLeftTimeDescription"),
+        Category    = ModuleCategory.Combat,
+        PreviewImageURL =
+        [
+            "https://gh.atmoomen.top/raw.githubusercontent.com/Dalamud-DailyRoutines/DailyRoutines/main/Resources/Modules/AutoDisplayDutyReadyLeftTime/preview-1.png"
+        ]
     };
-    
+
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
-
-    private static CountdownTimer? Timer;
-
+    
     protected override void Init() =>
-        DService.Instance().Condition.ConditionChange += OnConditionChanged;
+        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw, "ContentsFinderReady", OnAddon);
 
-    private static void OnConditionChanged(ConditionFlag flag, bool value)
-    {
-        if (flag != ConditionFlag.WaitingForDuty) return;
-        
-        Timer?.Stop();
-        Timer?.Dispose();
-        Timer = null;
-
-        if (value)
-        {
-            OnCountdownRunning(null, 45);
-            
-            Timer = new(45);
-            Timer.Start();
-            Timer.TimeChanged += OnCountdownRunning;
-        }
-    }
-
-    private static void OnCountdownRunning(object? sender, int second)
+    protected override void Uninit() =>
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
+    
+    private static void OnAddon(AddonEvent type, AddonArgs args)
     {
         if (!ContentsFinderReady->IsAddonAndNodesReady()) return;
         
         var textNode = ContentsFinderReady->GetTextNodeById(3);
         if (textNode == null) return;
-
-        var builder = new SeStringBuilder();
-        builder.AddText($"{LuminaWrapper.GetAddonText(2780)} ")
-               .AddUiForeground(32)
-               .AddText($"[{DService.Instance().SeStringEvaluator.EvaluateFromAddon(9169, [second])}]")
-               .AddUiForegroundOff();
         
-        textNode->SetText(builder.Build().EncodeWithNullTerminator());
-    }
+        var contentFinder = ContentsFinder.Instance();
+        if (contentFinder == null) return;
 
-    protected override void Uninit()
-    {
-        DService.Instance().Condition.ConditionChange -= OnConditionChanged;
-        OnConditionChanged(ConditionFlag.WaitingForDuty, false);
+        var readyTimestamp = contentFinder->QueueInfo.QueueReadyTimestamp;
+        if (readyTimestamp == 0) return;
+
+        var readyTime = readyTimestamp.ToUTCDateTimeFromUnixSeconds();
+        var dueTime   = readyTime + TimeSpan.FromSeconds(45);
+        var leftTime  = dueTime   - StandardTimeManager.Instance().UTCNow;
+        if (leftTime.TotalSeconds < 0) return;
+        
+        using var rented  = new RentedSeStringBuilder();
+        var       builder = rented.Builder;
+        
+        builder.Append($"{LuminaWrapper.GetAddonText(2780)} ")
+               .PushColorType(32)
+               .Append($"[{DService.Instance().SeStringEvaluator.EvaluateFromAddon(9169, [(int)leftTime.TotalSeconds])}]")
+               .PopColorType();
+
+        textNode->SetText(builder.GetViewAsSpan());
     }
 }

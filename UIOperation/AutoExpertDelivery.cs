@@ -1,10 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections.Frozen;
 using System.Numerics;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
-using DailyRoutines.Managers;
+using DailyRoutines.Common.Extensions;
+using DailyRoutines.Common.KamiToolKit.Addons;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using DailyRoutines.Manager;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.ClientState.Conditions;
@@ -15,52 +17,57 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using KamiToolKit;
+using KamiToolKit.Classes;
 using KamiToolKit.Nodes;
 using Lumina.Excel.Sheets;
+using OmenTools.Dalamud.Abstractions;
+using OmenTools.Dalamud.Attributes;
+using OmenTools.Interop.Game.AddonEvent;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.Interop.Game.Models.Packets.Upstream;
+using OmenTools.OmenService;
+using OmenTools.Threading.TaskHelper.Enums;
 using GrandCompany = FFXIVClientStructs.FFXIV.Client.UI.Agent.GrandCompany;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class AutoExpertDelivery : DailyModuleBase
+public unsafe class AutoExpertDelivery : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title               = GetLoc("AutoExpertDeliveryTitle"),
-        Description         = GetLoc("AutoExpertDeliveryDescription"),
-        Category            = ModuleCategories.UIOperation,
+        Title               = Lang.Get("AutoExpertDeliveryTitle"),
+        Description         = Lang.Get("AutoExpertDeliveryDescription"),
+        Category            = ModuleCategory.UIOperation,
         ModulesPrerequisite = ["FastGrandCompanyExchange"]
     };
-
-    private static Config ModuleConfig = null!;
     
-    private static DRAutoExpertDelivery? Addon;
+    private Config config = null!;
+
+    private DRAutoExpertDelivery? addonExpertDelivery;
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
+        config = Config.Load(this) ?? new();
 
         TaskHelper ??= new() { TimeoutMS = int.MaxValue };
 
-        Addon ??= new(this)
+        addonExpertDelivery ??= new(this)
         {
             InternalName          = "DRAutoExpertDelivery",
             Title                 = Info.Title,
-            Size                  = new(300f, 250f),
+            Size                  = new(300f, 280f),
             RememberClosePosition = true
         };
 
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "GrandCompanySupplyList", OnAddonSupplyList);
-        DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostDraw,  "GrandCompanySupplyList", OnAddonSupplyList);
-        if (GrandCompanySupplyList->IsAddonAndNodesReady()) 
-            OnAddonSupplyList(AddonEvent.PostSetup, null);
+        _ = UltimateTotemExchangeItemIDs;
     }
-    
+
     private bool EnqueueDelivery()
     {
         if (GrandCompanySupplyReward != null)
         {
             if (!GrandCompanySupplyReward->IsAddonAndNodesReady()) return false;
-            
+
             ((AddonGrandCompanySupplyReward*)GrandCompanySupplyReward)->DeliverButton->Click();
 
             TaskHelper.Abort();
@@ -71,9 +78,9 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
 
         if (SelectYesno != null)
         {
-            var state = ClickSelectYesnoYes();
+            var state = AddonSelectYesnoEvent.ClickYes();
             if (!state) return false;
-            
+
             TaskHelper.Abort();
             TaskHelper.Enqueue(EnqueueDelivery);
             return true;
@@ -81,12 +88,13 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
 
         if (GrandCompanySupplyList != null)
         {
-            if (!GrandCompanySupplyList->IsAddonAndNodesReady()         ||
+            if (!GrandCompanySupplyList->IsAddonAndNodesReady()       ||
                 AgentGrandCompanySupply.Instance()->ItemArray == null ||
                 GrandCompanySupplyList->AtkValues->UInt       != 2)
                 return false;
-            
-            var items = ExpertDeliveryItem.Parse().Where(x => x.GetIndex() != -1 && !x.IsNeedToSkip()).ToList();
+
+            var items = ExpertDeliveryItem.Parse().Where(x => x.GetIndex() != -1 && !x.IsNeedToSkip(this)).ToList();
+
             if (items.Count > 0)
             {
                 if (IsAboutToReachTheCap(items[0].SealReward))
@@ -94,9 +102,9 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
                     TaskHelper.Abort();
                     return true;
                 }
-                
+
                 items.First().HandIn();
-                
+
                 TaskHelper.Abort();
                 TaskHelper.Enqueue(EnqueueDelivery);
                 return true;
@@ -119,38 +127,53 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
     {
         if (!ZoneInfo.TryGetValue(GameState.TerritoryType, out var info)) return;
 
-        TaskHelper.Enqueue(() =>
-        {
-            if (!OccupiedInEvent) return true;
+        TaskHelper.Enqueue
+        (() =>
+            {
+                if (!DService.Instance().Condition.IsOccupiedInEvent) return true;
 
-            if (GrandCompanySupplyList->IsAddonAndNodesReady())
-                GrandCompanySupplyList->Close(true);
+                if (GrandCompanySupplyList->IsAddonAndNodesReady())
+                    GrandCompanySupplyList->Close(true);
 
-            if (SelectString->IsAddonAndNodesReady())
-                SelectString->Close(true);
+                if (SelectString->IsAddonAndNodesReady())
+                    SelectString->Close(true);
 
-            return false;
-        });
+                return false;
+            }
+        );
 
         TaskHelper.Enqueue(() => new EventStartPackt(DService.Instance().ObjectTable.LocalPlayer.GameObjectID, info.EventID).Send());
         TaskHelper.Enqueue(() => GrandCompanyExchange->IsAddonAndNodesReady());
 
-        if (isAutoExchange && ModuleManager.IsModuleEnabled(typeof(FastGrandCompanyExchange)))
+        if (isAutoExchange && ModuleManager.Instance().IsModuleEnabled(typeof(FastGrandCompanyExchange)))
         {
-            TaskHelper.Enqueue(() => ModuleManager.GetModule<FastGrandCompanyExchange>().EnqueueByName("default"));
-            TaskHelper.Enqueue(() => ModuleManager.GetModule<FastGrandCompanyExchange>().IsExchanging);
-            TaskHelper.Enqueue(() => !ModuleManager.GetModule<FastGrandCompanyExchange>().IsExchanging);
+            TaskHelper.Enqueue
+            (
+                () =>
+                {
+                    if (IsCurrentlyBusyIPC.Value)
+                        return true;
+
+                    EnqueueByNameIPC.InvokeFunc("default", -1);
+                    return false;
+                },
+                timeoutMS: 5_000,
+                timeoutBehaviour: TaskAbortBehaviour.AbortCurrent
+            );
+            TaskHelper.Enqueue(() => !IsCurrentlyBusyIPC.Value, timeoutMS: 5_000, timeoutBehaviour: TaskAbortBehaviour.AbortCurrent);
             TaskHelper.Enqueue(() => GrandCompanyExchange->Close(true));
         }
 
         // 还有没交的
         if (GrandCompanySupplyList->AtkValues[8].UInt != 0)
         {
-            TaskHelper.Enqueue(() => !GrandCompanyExchange->IsAddonAndNodesReady() && !OccupiedInEvent);
-            TaskHelper.Enqueue(() => DService.Instance().ObjectTable
-                                             .FirstOrDefault(x => x.ObjectKind == ObjectKind.EventNpc && x.DataID == info.DataID)
-                                             .TargetInteract());
-            TaskHelper.Enqueue(() => ClickSelectString(0));
+            TaskHelper.Enqueue(() => !GrandCompanyExchange->IsAddonAndNodesReady() && !DService.Instance().Condition.IsOccupiedInEvent);
+            TaskHelper.Enqueue
+            (() => DService.Instance().ObjectTable
+                           .FirstOrDefault(x => x.ObjectKind == ObjectKind.EventNpc && x.DataID == info.DataID)
+                           .TargetInteract()
+            );
+            TaskHelper.Enqueue(() => AddonSelectStringEvent.Select(0));
             if (isAutoExchange)
                 TaskHelper.Enqueue(EnqueueDelivery);
         }
@@ -158,7 +181,7 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
 
     private static bool EnqueueRefresh()
     {
-        if (GrandCompanySupplyReward != null              ||
+        if (GrandCompanySupplyReward != null                ||
             !GrandCompanySupplyList->IsAddonAndNodesReady() ||
             AgentGrandCompanySupply.Instance()->ItemArray == null)
             return false;
@@ -178,146 +201,158 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
         var buffMultiplier = 1f;
         if (LocalPlayerState.HasStatus(1078, out var index) || LocalPlayerState.HasStatus(414, out index))
             buffMultiplier += DService.Instance().ObjectTable.LocalPlayer.StatusList[index].Param / 100f;
-        
-        var companySeals   = InventoryManager.Instance()->GetCompanySeals(grandCompany);
-        var capAmount      = rank.MaxSeals;
+
+        var companySeals = InventoryManager.Instance()->GetCompanySeals(grandCompany);
+        var capAmount    = rank.MaxSeals;
+
         if (companySeals + (uint)(sealReward * buffMultiplier) > capAmount)
         {
-            NotificationInfo(GetLoc("AutoExpertDelivery-ReachdSealCap")); 
+            NotifyHelper.Instance().NotificationInfo(Lang.Get("AutoExpertDelivery-ReachdSealCap"));
             return true;
         }
-        
-        return false;
-    }
 
-    // 悬浮窗控制
-    private void OnAddonSupplyList(AddonEvent type, AddonArgs? args)
-    {
-        switch (type)
-        {
-            case AddonEvent.PostSetup:
-                if (GrandCompanySupplyList == null) return;
-        
-                if (ModuleConfig.AutoSwitchWhenOpen)
-                    GrandCompanySupplyList->Callback(0, ModuleConfig.DefaultPage);
-                break;
-            case AddonEvent.PostDraw:
-                if (TaskHelper.IsBusy || Addon.IsOpen || !GrandCompanySupplyList->IsAddonAndNodesReady()) return;
-                Addon.Open();
-                break;
-        }
+        return false;
     }
 
     protected override void Uninit()
     {
-        DService.Instance().AddonLifecycle.UnregisterListener(OnAddonSupplyList);
-        
-        Addon?.Dispose();
-        Addon = null;
+        addonExpertDelivery?.Dispose();
+        addonExpertDelivery = null;
     }
 
-    private class Config : ModuleConfiguration
+    private class Config : ModuleConfig
     {
-        public bool SkipWhenHQ         = true;
-        public bool SkipWhenMateria    = true;
-        
-        public bool AutoSwitchWhenOpen = true;
-
-        public int DefaultPage = 2;
+        public int  DefaultPage                    = 2;
+        public bool SkipWhenHQ                     = true;
+        public bool SkipWhenMateria                = true;
+        public bool SkipUltimateTotemExchangeItems = true;
     }
 
-    private class DRAutoExpertDelivery(AutoExpertDelivery Instance) : NativeAddon
+    private class DRAutoExpertDelivery
+    (
+        AutoExpertDelivery instance
+    ) : AttachedAddon("GrandCompanySupplyList", AddonEvent.PostSetup)
     {
         private static VerticalListNode ControlTabLayout;
         private static VerticalListNode SettingTabLayout;
 
         private static List<CheckboxNode> DefaultPageCheckboxes = [];
         
-        protected override void OnSetup(AtkUnitBase* addon)
+        protected override bool CanOpenAddon => !instance.TaskHelper.IsBusy;
+
+        protected override void OnHostAddon(AddonEvent type, AddonArgs? args)
         {
+            if (type != AddonEvent.PostSetup || GrandCompanySupplyList == null) return;
+
+            GrandCompanySupplyList->Callback(0, instance.config.DefaultPage);
+        }
+
+        protected override void OnSetup(AtkUnitBase* addon, Span<AtkValue> atkValues)
+        {
+            // 禁止 ESC 键关闭
+            FlagHelper.UpdateFlag(ref addon->Flags1A1, 0x4, true);
+
+            // 禁止聚焦
+            FlagHelper.UpdateFlag(ref addon->Flags1A0, 0x80, true);
+
+            // 禁止自动聚焦
+            FlagHelper.UpdateFlag(ref addon->Flags1A1, 0x40, true);
+
+            // 禁止右键菜单
+            FlagHelper.UpdateFlag(ref addon->Flags1A3, 0x1, true);
+
             DefaultPageCheckboxes.Clear();
-            
+
             var tabNode = new TabBarNode
             {
                 IsVisible = true,
                 Size      = new(275, 28),
-                Position  = ContentStartPosition,
+                Position  = ContentStartPosition
             };
 
             var tabContentPosition = tabNode.Position + new Vector2(0, tabNode.Size.Y + 5f);
-            
-            tabNode.AddTab(GetLoc("Operation"), () =>
-            {
-                ControlTabLayout.IsVisible = true;
-                SettingTabLayout.IsVisible = false;
-            });
-            
-            tabNode.AddTab(GetLoc("Settings"), () =>
-            {
-                ControlTabLayout.IsVisible = false;
-                SettingTabLayout.IsVisible = true;
-            });
-            
+
+            tabNode.AddTab
+            (
+                Lang.Get("Operation"),
+                () =>
+                {
+                    ControlTabLayout.IsVisible = true;
+                    SettingTabLayout.IsVisible = false;
+                }
+            );
+
+            tabNode.AddTab
+            (
+                Lang.Get("Settings"),
+                () =>
+                {
+                    ControlTabLayout.IsVisible = false;
+                    SettingTabLayout.IsVisible = true;
+                }
+            );
+
             tabNode.AttachNode(this);
-            
+
             ControlTabLayout = new()
             {
-                IsVisible   = true,
-                Position    = tabContentPosition + new Vector2(0, 5),
+                IsVisible = true,
+                Position  = tabContentPosition + new Vector2(0, 5),
+                ItemSpacing = 4f
             };
 
             var startNode = new TextButtonNode
             {
                 IsVisible = true,
                 IsEnabled = true,
-                Size      = new(tabNode.Size.X - 10, 38),
-                SeString  = GetLoc("Start"),
+                Size      = new(tabNode.Size.X - 10, 42),
+                String    = Lang.Get("Start"),
                 OnClick = () =>
                 {
-                    if (Instance.TaskHelper.IsBusy) return;
-                    Instance.EnqueueDelivery();
+                    if (instance.TaskHelper.IsBusy) return;
+                    instance.EnqueueDelivery();
                 }
             };
-            
+
             var stopNode = new TextButtonNode
             {
                 IsVisible = true,
                 IsEnabled = true,
-                Size      = new(tabNode.Size.X - 10, 38),
-                SeString  = GetLoc("Stop"),
+                Size      = new(tabNode.Size.X - 10, 42),
+                String    = Lang.Get("Stop"),
                 OnClick = () =>
                 {
-                    if (!Instance.TaskHelper.IsBusy) return;
-                    Instance.TaskHelper.Abort();
+                    if (!instance.TaskHelper.IsBusy) return;
+                    instance.TaskHelper.Abort();
                 }
             };
-            
+
             var exchangeShopNode = new TextButtonNode
             {
                 IsVisible = true,
                 IsEnabled = true,
-                Size      = new(tabNode.Size.X - 10, 38),
-                SeString  = LuminaWrapper.GetAddonText(3280),
+                Size      = new(tabNode.Size.X - 10, 42),
+                String    = LuminaWrapper.GetAddonText(3280),
                 OnClick = () =>
                 {
-                    if (Instance.TaskHelper.IsBusy) return;
-                    Instance.EnqueueGrandCompanyExchangeOpen(false);
+                    if (instance.TaskHelper.IsBusy) return;
+                    instance.EnqueueGrandCompanyExchangeOpen(false);
                 }
             };
-            
+
             var exchangeShopAndExchangeNode = new TextButtonNode
             {
                 IsVisible = true,
                 IsEnabled = true,
-                Size      = new(tabNode.Size.X - 5, 38),
-                SeString  = $"{LuminaWrapper.GetAddonText(3280)} [{GetLoc("Exchange")}]",
+                Size      = new(tabNode.Size.X - 5, 42),
+                String    = $"{LuminaWrapper.GetAddonText(3280)} [{Lang.Get("Exchange")}]",
                 OnClick = () =>
                 {
-                    if (Instance.TaskHelper.IsBusy) return;
-                    Instance.EnqueueGrandCompanyExchangeOpen(true);
+                    if (instance.TaskHelper.IsBusy) return;
+                    instance.EnqueueGrandCompanyExchangeOpen(true);
                 }
             };
-            
+
             ControlTabLayout.AddNode([startNode, stopNode, exchangeShopNode, exchangeShopAndExchangeNode]);
             ControlTabLayout.AttachNode(this);
 
@@ -325,52 +360,68 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
             {
                 IsVisible   = false,
                 Position    = tabContentPosition + new Vector2(5, 3),
-                FitContents = true,
+                FitContents = true
             };
 
             var skipHQSettingNode = new CheckboxNode
             {
                 IsVisible = true,
                 IsEnabled = true,
-                IsChecked = ModuleConfig.SkipWhenHQ,
+                IsChecked = instance.config.SkipWhenHQ,
                 Size      = new(100, 27),
-                SeString  = GetLoc("AutoExpertDelivery-SkipHQ"),
+                String    = Lang.Get("AutoExpertDelivery-SkipHQ"),
                 OnClick = x =>
                 {
-                    ModuleConfig.SkipWhenHQ = x;
-                    ModuleConfig.Save(Instance);
+                    instance.config.SkipWhenHQ = x;
+                    instance.config.Save(instance);
                 }
             };
-            
+
             skipHQSettingNode.Label.Width = tabNode.Size.X - 20;
-            while (skipHQSettingNode.Label.FontSize                                      >= 1 && 
-                   skipHQSettingNode.Label.GetTextDrawSize(skipHQSettingNode.SeString).X > skipHQSettingNode.Label.Width)
-                skipHQSettingNode.Label.FontSize--;
+            skipHQSettingNode.Label.AutoAdjustTextSize();
             skipHQSettingNode.Height = skipHQSettingNode.Label.FontSize * 1.5f;
-            
+
             SettingTabLayout.AddNode(skipHQSettingNode);
-            
+
             var skipMateriaSettingNode = new CheckboxNode
             {
                 IsVisible = true,
                 IsEnabled = true,
-                IsChecked = ModuleConfig.SkipWhenMateria,
+                IsChecked = instance.config.SkipWhenMateria,
                 Size      = new(100, 27),
-                SeString  = GetLoc("AutoExpertDelivery-SkipMaterias"),
+                String    = Lang.Get("AutoExpertDelivery-SkipMaterias"),
                 OnClick = x =>
                 {
-                    ModuleConfig.SkipWhenMateria = x;
-                    ModuleConfig.Save(Instance);
+                    instance.config.SkipWhenMateria = x;
+                    instance.config.Save(instance);
                 }
             };
-            
+
             skipMateriaSettingNode.Label.Width = tabNode.Size.X - 20;
-            while (skipMateriaSettingNode.Label.FontSize                                           >= 1 && 
-                   skipMateriaSettingNode.Label.GetTextDrawSize(skipMateriaSettingNode.SeString).X > skipMateriaSettingNode.Label.Width)
-                skipMateriaSettingNode.Label.FontSize--;
+            skipMateriaSettingNode.Label.AutoAdjustTextSize();
             skipMateriaSettingNode.Height = skipMateriaSettingNode.Label.FontSize * 1.5f;
-            
+
             SettingTabLayout.AddNode(skipMateriaSettingNode);
+
+            var skipUltimateTotemExchangeItemsNode = new CheckboxNode
+            {
+                IsVisible = true,
+                IsEnabled = true,
+                IsChecked = instance.config.SkipUltimateTotemExchangeItems,
+                Size      = new(100, 27),
+                String    = Lang.Get("AutoExpertDelivery-SkipUltimateWeapons"),
+                OnClick = x =>
+                {
+                    instance.config.SkipUltimateTotemExchangeItems = x;
+                    instance.config.Save(instance);
+                }
+            };
+
+            skipUltimateTotemExchangeItemsNode.Label.Width = tabNode.Size.X - 20;
+            skipUltimateTotemExchangeItemsNode.Label.AutoAdjustTextSize();
+            skipUltimateTotemExchangeItemsNode.Height = skipUltimateTotemExchangeItemsNode.Label.FontSize * 1.5f;
+
+            SettingTabLayout.AddNode(skipUltimateTotemExchangeItemsNode);
             SettingTabLayout.AddDummy(5f);
 
             var defaultPageTitleNode = new TextNode
@@ -378,30 +429,28 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
                 IsVisible = true,
                 Size      = new(tabNode.Size.X - 20, 27),
                 FontSize  = 16,
-                SeString  = GetLoc("AutoExpertDelivery-DefaultPage"),
+                String    = Lang.Get("AutoExpertDelivery-DefaultPage")
             };
-            
-            while (defaultPageTitleNode.FontSize                                         >= 1 && 
-                   defaultPageTitleNode.GetTextDrawSize(defaultPageTitleNode.SeString).X > defaultPageTitleNode.Width)
-                defaultPageTitleNode.FontSize--;
+
+            defaultPageTitleNode.AutoAdjustTextSize();
             defaultPageTitleNode.Height = defaultPageTitleNode.FontSize * 1.5f;
 
             SettingTabLayout.AddNode(defaultPageTitleNode);
             SettingTabLayout.AddDummy(3f);
-            
+
             for (var i = 0U; i < 3; i++)
             {
                 var index = i;
-                
+
                 var defaultPageNode = new CheckboxNode
                 {
                     IsVisible = true,
                     IsEnabled = true,
-                    IsChecked = ModuleConfig.DefaultPage == i,
+                    IsChecked = instance.config.DefaultPage == i,
                     Size      = new(100, 27),
-                    SeString  = LuminaWrapper.GetAddonText(4572 + i)
+                    String    = LuminaWrapper.GetAddonText(4572 + i)
                 };
-                
+
                 defaultPageNode.OnClick = x =>
                 {
                     if (!x)
@@ -410,16 +459,16 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
                         return;
                     }
 
-                    ModuleConfig.DefaultPage = (int)index;
-                    ModuleConfig.Save(Instance);
+                    instance.config.DefaultPage = (int)index;
+                    instance.config.Save(instance);
 
                     for (var d = 0; d < DefaultPageCheckboxes.Count; d++)
                     {
                         var node = DefaultPageCheckboxes[d];
-                        node.IsChecked = ModuleConfig.DefaultPage == d;
+                        node.IsChecked = instance.config.DefaultPage == d;
                     }
                 };
-                
+
                 DefaultPageCheckboxes.Add(defaultPageNode);
                 SettingTabLayout.AddNode(defaultPageNode);
             }
@@ -427,33 +476,22 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
             SettingTabLayout.AttachNode(this);
         }
 
-        protected override void OnUpdate(AtkUnitBase* addon)
-        {
-            if (GrandCompanySupplyList == null)
-            {
-                Close();
-                return;
-            }
-
-            var position = new Vector2(GrandCompanySupplyList->RootNode->ScreenX - addon->GetScaledWidth(true),
-                                       GrandCompanySupplyList->RootNode->ScreenY);
-            
-            SetWindowPosition(position);
-        }
-
-        protected override void OnFinalize(AtkUnitBase* addon) 
-        {
-            if (GrandCompanySupplyList == null || Instance.TaskHelper.IsBusy) return;
-            GrandCompanySupplyList->Close(true);
-        }
+        protected override bool CanCloseHostAddon(AtkUnitBase* hostAddon) =>
+            base.CanCloseHostAddon(hostAddon) && !instance.TaskHelper.IsBusy;
     }
-    
-    private record ExpertDeliveryItem(uint ItemID, InventoryType Container, ushort Slot, uint SealReward)
+
+    private record ExpertDeliveryItem
+    (
+        uint          ItemID,
+        InventoryType Container,
+        ushort        Slot,
+        uint          SealReward
+    )
     {
         public static List<ExpertDeliveryItem> Parse()
         {
             List<ExpertDeliveryItem> returnValues = [];
-            
+
             var agent = AgentGrandCompanySupply.Instance();
             if (agent == null || agent->ItemArray == null) return returnValues;
 
@@ -463,21 +501,22 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
                 if (item.ItemId == 0 || item.IsBonusReward || item.ExpReward > 0 || item.SealReward <= 0) continue;
                 returnValues.Add(new(item.ItemId, item.Inventory, item.Slot, (uint)item.SealReward));
             }
-            
+
             return returnValues;
         }
 
         public void HandIn() => GrandCompanySupplyList->Callback(1, GetIndex());
 
-        public bool IsNeedToSkip()
+        public bool IsNeedToSkip(AutoExpertDelivery instance)
         {
             if (GetSlot() == null) return true;
-            if (ModuleConfig.SkipWhenHQ && IsHQ()) return true;
-            if (ModuleConfig.SkipWhenMateria && HasMateria()) return true;
+            if (instance.config.SkipWhenHQ      && IsHQ()) return true;
+            if (instance.config.SkipWhenMateria && HasMateria()) return true;
+            if (instance.config.SkipUltimateTotemExchangeItems && IsUltimateTotemExchangeItem()) return true;
 
             return false;
         }
-        
+
         public int GetIndex()
         {
             var agent = AgentGrandCompanySupply.Instance();
@@ -488,24 +527,24 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
 
             var loadState = addon->AtkValues[0].UInt;
             if (loadState != 2) return -1;
-            
+
             var tab = addon->AtkValues[5].UInt;
             if (tab != 2) return -1;
-            
+
             var itemCount = addon->AtkValues[6].UInt;
             if (itemCount == 0) return -1;
-            
+
             for (var i = 0; i < Math.Min(40, itemCount); i++)
             {
                 var sealReward = addon->AtkValues[265 + i].UInt;
                 var container  = (InventoryType)addon->AtkValues[345 + i].UInt;
                 var slot       = addon->AtkValues[385 + i].UInt;
                 var itemID     = addon->AtkValues[425 + i].UInt;
-                
+
                 if (itemID != ItemID || slot != Slot || container != Container || sealReward != SealReward) continue;
                 return i;
             }
-            
+
             return -1;
         }
 
@@ -519,24 +558,80 @@ public unsafe class AutoExpertDelivery : DailyModuleBase
                 var materia = GetSlot()->Materia[i];
                 if (materia != 0) return true;
             }
-            
+
             return false;
         }
 
         public bool IsHQ() => GetSlot()->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality);
-        
+
+        public bool IsUltimateTotemExchangeItem() => UltimateTotemExchangeItemIDs.Contains(ItemID);
+
         public InventoryItem* GetSlot() => InventoryManager.Instance()->GetInventorySlot(Container, Slot);
 
         public override string ToString() => $"ExpertDeliveryItem-{ItemID}_{Container}_{Slot}_{SealReward}";
     }
-    
-    private static readonly Dictionary<uint, (uint EventID, uint DataID)> ZoneInfo = new()
+
+    #region 常量
+
+    private static readonly FrozenDictionary<uint, (uint EventID, uint DataID)> ZoneInfo = new Dictionary<uint, (uint EventID, uint DataID)>
     {
         // 黑涡团
         [128] = (1441793, 1002388),
         // 双蛇党
         [132] = (1441794, 1002394),
         // 恒辉队
-        [130] = (1441795, 1002391),
-    };
+        [130] = (1441795, 1002391)
+    }.ToFrozenDictionary();
+
+    private static readonly FrozenSet<uint> UltimateTotemItemIDs = new HashSet<uint>
+    {
+        21197, // 龙神图腾
+        23175, // 究极图腾
+        28633, // 机神城图腾
+        36810, // 龙诗图腾
+        38951, // 欧米茄图腾
+        44743  // 巫女图腾
+    }.ToFrozenSet();
+
+    private static FrozenSet<uint> UltimateTotemExchangeItemIDs
+    {
+        get
+        {
+            if (field != null) return field;
+
+            HashSet<uint> itemIDs = [];
+
+            foreach (var shop in LuminaGetter.Get<SpecialShop>())
+            {
+                foreach (var entry in shop.Item)
+                {
+                    if (!entry.ItemCosts.Any(x => UltimateTotemItemIDs.Contains(x.ItemCost.RowId))) continue;
+
+                    foreach (var receiveItem in entry.ReceiveItems)
+                    {
+                        if (receiveItem.Item.RowId == 0) continue;
+
+                        var item = receiveItem.Item.Value;
+                        if (item.FilterGroup is 1 or 2 or 3)
+                            itemIDs.Add(item.RowId);
+                    }
+                }
+            }
+
+            return field = itemIDs.ToFrozenSet();
+        }
+    }
+
+    #endregion
+
+    #region IPC
+
+    [IPCSubscriber("DailyRoutines.Modules.FastGrandCompanyExchange.IsBusy")]
+    private IPCSubscriber<bool> IsCurrentlyBusyIPC;
+    
+    [IPCSubscriber("DailyRoutines.Modules.FastGrandCompanyExchange.EnqueueByName")]
+    private IPCSubscriber<string, int, bool> EnqueueByNameIPC;
+
+    #endregion
 }
+

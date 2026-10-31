@@ -1,170 +1,248 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Helpers;
-using DailyRoutines.Infos;
-using DailyRoutines.Managers;
-using Dalamud.Plugin.Services;
+using System.Collections.Frozen;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
 using Newtonsoft.Json;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
+using NotifyHelper = OmenTools.OmenService.NotifyHelper;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class AutoNotifyChaoticRaidBonus : DailyModuleBase
+public class AutoNotifyChaoticRaidBonus : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoNotifyChaoticRaidBonusTitle"),
-        Description = GetLoc("AutoNotifyChaoticRaidBonusDescription"),
-        Category    = ModuleCategories.Notice
+        Title       = Lang.Get("AutoNotifyChaoticRaidBonusTitle"),
+        Description = Lang.Get("AutoNotifyChaoticRaidBonusDescription"),
+        Category    = ModuleCategory.Notice
     };
+    
+    private Config config = null!;
 
-    private static readonly List<string> AllDataCenters =
-    [
-        "陆行鸟", "莫古力", "猫小胖", "豆豆柴",
-        "Elemental", "Gaia", "Mana", "Meteor",
-        "Aether", "Crystal", "Dynamis", "Primal",
-        "Light", "Chaos", "Materia"
-    ];
-
-    private const string BaseUrl = "https://api.ff14.xin/status?data_center={0}";
-
-    private static Config ModuleConfig = null!;
+    private readonly CancellationTokenSource cancelSource = new();
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
-        
-        AllDataCenters.ForEach(x => ModuleConfig.DataCenters.TryAdd(x, false));
-        AllDataCenters.ForEach(x => ModuleConfig.DataCentersNotifyTime.TryAdd(x, 0));
-        SaveConfig(ModuleConfig);
-        
-        FrameworkManager.Instance().Reg(OnUpdate, throttleMS: 60_000);
-        
-        RunCheck(true);
+        config = Config.Load(this) ?? new();
+
+        var state = false;
+
+        foreach (var x in AllDataCenters)
+        {
+            if (config.DataCenters.TryAdd(x, false))
+                state = true;
+        }
+
+        foreach (var x in AllDataCenters)
+        {
+            if (config.DataCentersNotifyTime.TryAdd(x, 0))
+                state = true;
+        }
+
+        if (state)
+            config.Save(this);
+
+        Task.Run(() => CheckLoop(cancelSource.Token));
+    }
+
+    protected override void Uninit()
+    {
+        cancelSource.Cancel();
+        cancelSource.Dispose();
     }
 
     protected override void ConfigUI()
     {
-        if (ImGui.Checkbox(GetLoc("SendNotification"), ref ModuleConfig.SendNotification))
-            SaveConfig(ModuleConfig);
-        
-        if (ImGui.Checkbox(GetLoc("SendChat"), ref ModuleConfig.SendChat))
-            SaveConfig(ModuleConfig);
-        
-        if (ImGui.Checkbox(GetLoc("SendTTS"), ref ModuleConfig.SendTTS))
-            SaveConfig(ModuleConfig);
+        if (ImGui.Checkbox(Lang.Get("SendNotification"), ref config.SendNotification))
+            config.Save(this);
+
+        if (ImGui.Checkbox(Lang.Get("SendChat"), ref config.SendChat))
+            config.Save(this);
+
+        if (ImGui.Checkbox(Lang.Get("SendTTS"), ref config.SendTTS))
+            config.Save(this);
 
         ImGui.NewLine();
-        
+
         using var table = ImRaii.Table("Table", 3, ImGuiTableFlags.None, (ImGui.GetContentRegionAvail() / 1.5f) with { Y = 0 });
         if (!table) return;
-        
+
         ImGui.TableSetupColumn(LuminaWrapper.GetLobbyText(802));
-        ImGui.TableSetupColumn(GetLoc("Enable"));
-        ImGui.TableSetupColumn(GetLoc("AutoNotifyChaoticRaidBonus-LastBonusNotifyTime"));
-        
+        ImGui.TableSetupColumn(Lang.Get("Enable"));
+        ImGui.TableSetupColumn(Lang.Get("AutoNotifyChaoticRaidBonus-LastBonusNotifyTime"));
+
         ImGui.TableHeadersRow();
 
-        foreach (var (name, isEnabled) in ModuleConfig.DataCenters)
+        foreach (var (name, isEnabled) in config.DataCenters)
         {
-            if (!ModuleConfig.DataCentersNotifyTime.TryGetValue(name, out var timeUnix)) continue;
+            if (!config.DataCentersNotifyTime.TryGetValue(name, out var timeUnix)) continue;
 
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"{name}");
-            
+
             var enabled = isEnabled;
             ImGui.TableNextColumn();
+
             if (ImGui.Checkbox($"###{name}IsEnabled", ref enabled))
             {
-                ModuleConfig.DataCenters[name] = enabled;
-                ModuleConfig.Save(this);
+                config.DataCenters[name] = enabled;
+                config.Save(this);
             }
-            
+
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"{DateTimeOffset.FromUnixTimeSeconds(timeUnix).LocalDateTime}");
         }
     }
 
-    private static void OnUpdate(IFramework framework)
+    private async Task CheckLoop(CancellationToken ct)
     {
-        var currentMinute = DateTime.Now.Minute;
-        if (currentMinute is > 5 and < 55) return;
+        await Task.Delay(5000, ct);
 
-        RunCheck();
-    }
-
-    private static void RunCheck(bool isIgnoreTime = false)
-    {
-        Task.Run(async () => await Task.WhenAll(AllDataCenters.Select(Get)));
-        
-        return;
-
-        async Task Get(string dcName)
+        while (!ct.IsCancellationRequested)
         {
-            if (!ModuleConfig.DataCenters.TryGetValue(dcName, out var isEnabled) || 
-                (!isEnabled && GameState.CurrentDataCenterData.Name.ToString() != dcName)) 
-                return;
-            // 小于 3 小时
-            if (!ModuleConfig.DataCentersNotifyTime.TryGetValue(dcName, out var lastTime) || 
-                (!isIgnoreTime && GameState.ServerTimeUnix - lastTime < 10800)) 
-                return;
+            try
+            {
+                var now    = DateTime.Now;
+                var minute = now.Minute;
 
-            // 不在副本内且当前就在目标大区
-            if (DService.Instance().ClientState.IsLoggedIn && !GameState.IsInInstanceArea && 
-                GameState.CurrentDataCenterData.Name.ToString() == dcName)
-            {
-                var isBonusNow = GameState.IsChaoticRaidBonusActive;
-                if (isBonusNow)
+                if (minute is > 5 and < 55)
                 {
-                    Notify(dcName);
-                    ModuleConfig.DataCentersNotifyTime[dcName] = GameState.ServerTimeUnix;
+                    var delayMinutes = 55 - minute;
+                    await Task.Delay(TimeSpan.FromMinutes(delayMinutes), ct);
+                    continue;
                 }
+
+                var snapshot = await GetStateSnapshot();
+                if (snapshot != null) await RunCheckAsync(snapshot);
+
+                await Task.Delay(60_000, ct);
             }
-            else
+            catch (OperationCanceledException)
             {
-                try
-                {
-                    var result  = await HttpClientHelper.Get().GetStringAsync(string.Format(BaseUrl, dcName));
-                    var content = JsonConvert.DeserializeObject<ChaoticUptimeData>(result);
-                    if (content.IsUptime)
-                    {
-                        Notify(dcName);
-                        ModuleConfig.DataCentersNotifyTime[dcName] = GameState.ServerTimeUnix;
-                    }
-                }
-                catch
-                {
-                    // ignored
-                }
+                break;
+            }
+            catch (Exception)
+            {
+                // ignored
             }
         }
     }
 
-    private static void Notify(string dcName)
+    private static Task<StateSnapshot?> GetStateSnapshot()
     {
-        var text = GetLoc("AutoNotifyChaoticRaidBonus-Notification", dcName);
-        
-        if (ModuleConfig.SendNotification) 
-            NotificationInfo(text);
-        if (ModuleConfig.SendChat) 
-            Chat(text);
-        if (ModuleConfig.SendTTS) 
-            Speak(text);
+        var tcs = new TaskCompletionSource<StateSnapshot?>();
+
+        DService.Instance().Framework.RunOnTick
+        (() =>
+            {
+                try
+                {
+                    if (!GameState.IsLoggedIn)
+                    {
+                        tcs.SetResult(null);
+                        return;
+                    }
+
+                    tcs.SetResult
+                    (
+                        new StateSnapshot
+                        (
+                            GameState.CurrentDataCenterData.Name.ToString(),
+                            true,
+                            GameState.IsInInstanceArea,
+                            GameState.IsChaoticRaidBonusActive,
+                            GameState.ServerTimeUnix
+                        )
+                    );
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
+            }
+        );
+
+        return tcs.Task;
     }
 
-    protected override void Uninit() => FrameworkManager.Instance().Unreg(OnUpdate);
+    private async Task RunCheckAsync(StateSnapshot state)
+    {
+        var results = await Task.WhenAll(AllDataCenters.Select(dcName => CheckDC(dcName, state)));
 
-    private class Config : ModuleConfiguration
+        foreach (var result in results)
+        {
+            if (result != null)
+                config.DataCentersNotifyTime[result.Value.DC] = result.Value.Time;
+        }
+    }
+
+    private async Task<(string DC, long Time)?> CheckDC(string dcName, StateSnapshot state)
+    {
+        if (!config.DataCenters.TryGetValue(dcName, out var isEnabled) ||
+            !isEnabled && state.CurrentDC != dcName)
+            return null;
+
+        var lastTime = config.DataCentersNotifyTime.GetValueOrDefault(dcName, 0);
+        if (state.ServerTime - lastTime < 10800) return null;
+
+        if (state is { IsLoggedIn: true, IsInInstance: false } && state.CurrentDC == dcName)
+        {
+            if (state.IsBonusActive)
+            {
+                Notify(dcName);
+                return (dcName, state.ServerTime);
+            }
+        }
+        else
+        {
+            try
+            {
+                var result  = await HTTPClientHelper.Instance().Get().GetStringAsync(string.Format(BASE_URL, dcName));
+                var content = JsonConvert.DeserializeObject<ChaoticUptimeData>(result);
+
+                if (content is { IsUptime: true })
+                {
+                    Notify(dcName);
+                    return (dcName, state.ServerTime);
+                }
+            }
+            catch
+            {
+                /* ignored */
+            }
+        }
+
+        return null;
+    }
+
+    private void Notify(string dcName)
+    {
+        DService.Instance().Framework.RunOnTick
+        (() =>
+            {
+                var text = Lang.Get("AutoNotifyChaoticRaidBonus-Notification", dcName);
+
+                if (config.SendNotification)
+                    NotifyHelper.Instance().NotificationInfo(text);
+                if (config.SendChat)
+                    NotifyHelper.Instance().Chat(text);
+                if (config.SendTTS)
+                    NotifyHelper.Speak(text);
+            }
+        );
+    }
+
+    private class Config : ModuleConfig
     {
         public Dictionary<string, bool> DataCenters           = [];
         public Dictionary<string, long> DataCentersNotifyTime = [];
+        public bool                     SendChat              = true;
 
         public bool SendNotification = true;
-        public bool SendChat = true;
-        public bool SendTTS = true;
+        public bool SendTTS          = true;
     }
 
     private class ChaoticUptimeData
@@ -181,4 +259,27 @@ public class AutoNotifyChaoticRaidBonus : DailyModuleBase
         [JsonProperty("last_bonus_ends")]
         public List<DateTime> LastBonusEndTimes { get; set; }
     }
+
+    private record StateSnapshot
+    (
+        string CurrentDC,
+        bool   IsLoggedIn,
+        bool   IsInInstance,
+        bool   IsBonusActive,
+        long   ServerTime
+    );
+    
+    #region 常量
+
+    private const string BASE_URL = "https://api.ff14.xin/status?data_center={0}";
+
+    private static readonly FrozenSet<string> AllDataCenters =
+    [
+        "陆行鸟", "莫古力", "猫小胖", "豆豆柴",
+        "Elemental", "Gaia", "Mana", "Meteor",
+        "Aether", "Crystal", "Dynamis", "Primal",
+        "Light", "Chaos", "Materia"
+    ];
+
+    #endregion
 }

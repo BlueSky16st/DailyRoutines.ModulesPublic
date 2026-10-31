@@ -1,62 +1,52 @@
-using System.Collections.Generic;
-using System.Linq;
-using DailyRoutines.Abstracts;
-using Dalamud.Game.Text;
-using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Utility;
-using FFXIVClientStructs.FFXIV.Client.System.Framework;
-using Lumina.Excel.Sheets;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class AutoNotifyCountdown : DailyModuleBase
+public class AutoNotifyCountdown : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("AutoNotifyCountdownTitle"),
-        Description = GetLoc("AutoNotifyCountdownDescription"),
-        Category    = ModuleCategories.Notice,
+        Title       = Lang.Get("AutoNotifyCountdownTitle"),
+        Description = Lang.Get("AutoNotifyCountdownDescription"),
+        Category    = ModuleCategory.Notice,
         Author      = ["HSS"]
     };
-    
+
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
     
-    private static readonly List<string> Countdown = LuminaGetter.GetRowOrDefault<LogMessage>(5255).Text.ToDalamudString().Payloads
-                                                                 .Where(x => x.Type == PayloadType.RawText)
-                                                                 .Select(text => text.ToString() ?? string.Empty).ToList();
-
-    private static Config ModuleConfig = null!;
+    private Config config = null!;
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
-        
-        DService.Instance().Chat.ChatMessage += OnChatMessage;
+        config = Config.Load(this) ?? new();
+
+        LogMessageManager.Instance().RegPost(OnLogMessage);
+    }
+
+    protected override void Uninit() =>
+        LogMessageManager.Instance().Unreg(OnLogMessage);
+
+    private void OnLogMessage(uint logMessageID, LogMessageQueueItem item)
+    {
+        if (logMessageID != 5255) return;
+        if (config.OnlyNotifyWhenBackground && GameState.IsForeground) return;
+
+        NotifyHelper.Instance().NotificationInfo(Lang.Get("AutoNotifyCountdown-NotificationTitle"));
+        NotifyHelper.Speak(Lang.Get("AutoNotifyCountdown-NotificationTitle"));
     }
 
     protected override void ConfigUI()
     {
-        if (ImGui.Checkbox(GetLoc("OnlyNotifyWhenBackground"), ref ModuleConfig.OnlyNotifyWhenBackground))
-            SaveConfig(ModuleConfig);
+        if (ImGui.Checkbox(Lang.Get("OnlyNotifyWhenBackground"), ref config.OnlyNotifyWhenBackground))
+            config.Save(this);
     }
 
-    private static unsafe void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool ishandled)
-    {
-        if (ModuleConfig.OnlyNotifyWhenBackground && !Framework.Instance()->WindowInactive) return;
-        if ((uint)type != 185) return;
-
-        var msg = message.TextValue;
-        if (Countdown.All(msg.Contains))
-        {
-            NotificationInfo(message.TextValue, Lang.Get("AutoNotifyCountdown-NotificationTitle"));
-            Speak(message.TextValue);
-        }
-    }
-
-    protected override void Uninit() => 
-        DService.Instance().Chat.ChatMessage -= OnChatMessage;
-
-    private class Config : ModuleConfiguration
+    private class Config : ModuleConfig
     {
         public bool OnlyNotifyWhenBackground = true;
     }

@@ -1,10 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Frozen;
 using System.Numerics;
 using System.Text.RegularExpressions;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Managers;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using DailyRoutines.Manager;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Interface.Colors;
@@ -12,53 +13,46 @@ using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game.MJI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using OmenTools.Dalamud;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class AutoMJIWorkshopImport : DailyModuleBase
+public unsafe partial class AutoMJIWorkshopImport : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
         Title       = "自动无人岛工房生产计划",
-        Description = "允许从剪贴板导入外部无人岛生产计划, 并一键自动安排 (仅支持国服作业集格式)",
-        Category    = ModuleCategories.UIOperation,
+        Description = "允许从剪贴板导入外部无人岛生产计划, 并一键自动安排对应生产计划",
+        Category    = ModuleCategory.UIOperation
     };
 
-    public override ModulePermission Permission { get; } = new() { CNOnly = true };
+    public override ModulePermission Permission { get; } = new() { CNOnly = true, TCOnly = true };
 
-    private static Assignments Recommendations = new();
-    private static readonly Dictionary<uint, MJICraftworksObject> OriginalCraftItemsSheet;
-    private static readonly Dictionary<string, MJICraftworksObject> ItemNameMap;
+    private Config config = null!;
 
-    private static Config ModuleConfig = null!;
-
-    static AutoMJIWorkshopImport()
-    {
-        OriginalCraftItemsSheet = LuminaGetter.Get<MJICraftworksObject>()
-                                              .Where(x => x.Item.RowId != 0 && x.Item.IsValid)
-                                              .ToDictionary(x => x.RowId, x => x);
-        ItemNameMap = OriginalCraftItemsSheet.Values
-                                             .ToDictionary(r => RemoveMJIItemPrefix(r.Item.Value.Name.ToString() ?? string.Empty), 
-                                                           r => r,
-                                                           StringComparer.OrdinalIgnoreCase);
-    }
+    private Assignments recommendations = new();
 
     protected override void Init()
     {
-        ModuleConfig = LoadConfig<Config>() ?? new();
+        config = Config.Load(this) ?? new();
 
-        Overlay            ??= new(this);
-        Overlay.Flags      &=  ~ImGuiWindowFlags.NoTitleBar;
-        Overlay.Flags      &=  ~ImGuiWindowFlags.NoResize;
-        Overlay.Flags      &=  ~ImGuiWindowFlags.AlwaysAutoResize;
-        Overlay.WindowName =   "自动无人岛工房生产计划";
-        Overlay.SizeConstraints = new() { MinimumSize = new(400f * GlobalFontScale, 300f * GlobalFontScale) };
-        
+        Overlay                 ??= new(this);
+        Overlay.Flags           &=  ~ImGuiWindowFlags.NoTitleBar;
+        Overlay.Flags           &=  ~ImGuiWindowFlags.NoResize;
+        Overlay.Flags           &=  ~ImGuiWindowFlags.AlwaysAutoResize;
+        Overlay.WindowName      =   "自动无人岛工房生产计划";
+        Overlay.SizeConstraints =   new() { MinimumSize = new(400f * GlobalUIScale, 300f * GlobalUIScale) };
+
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "MJICraftSchedule", OnAddon);
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "MJICraftSchedule", OnAddon);
-        if (MJICraftSchedule != null) 
+        if (MJICraftSchedule != null)
             OnAddon(AddonEvent.PostSetup, null);
     }
+    
+    protected override void Uninit() =>
+        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
 
     protected override void OverlayUI()
     {
@@ -67,15 +61,15 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             Overlay.IsOpen = false;
             return;
         }
-        
+
         if (!MJICraftSchedule->IsAddonAndNodesReady()) return;
-        
+
         using var font = FontManager.Instance().UIFont80.Push();
-        
+
         DrawImportSection();
-        
-        if (Recommendations.Empty) return;
-        
+
+        if (recommendations.Empty) return;
+
         DrawBulkApplySection();
         DrawIndividualApplySection();
     }
@@ -84,10 +78,10 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
     {
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), "导入数据");
-        
+
         ImGui.SameLine();
         ImGui.TextUnformatted("(");
-        
+
         ImGui.SameLine();
         if (ImGui.SmallButton("常规作业集 (蜡笔桶)"))
             Util.OpenLink("https://docs.qq.com/doc/DTUNRZkJjTVhvT2Nv");
@@ -95,77 +89,78 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         ImGui.SameLine();
         if (ImGui.SmallButton("猫票作业集 (戴幽)"))
             Util.OpenLink("https://docs.qq.com/sheet/DVmxFek1pUUtmYVhl");
-        
+
         ImGui.SameLine();
         ImGui.TextUnformatted(")");
-        
+
         ImGui.Spacing();
 
         using var indent = ImRaii.PushIndent();
-        
-        if (ImGui.Button(GetLoc("ImportFromClipboard")))
-            Recommendations = Assignments.Parse(ImGui.GetClipboardText().Trim());
-        
+
+        if (ImGui.Button(Lang.Get("ImportFromClipboard")))
+            recommendations = Assignments.Parse(ImGui.GetClipboardText().Trim());
+
         ImGui.SameLine();
-        if (ImGui.Button("清除已导入数据")) 
-            Recommendations = new();
-        
+        if (ImGui.Button("清除已导入数据"))
+            recommendations = new();
+
         ImGui.SameLine();
         ImGui.TextDisabled("|");
 
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(150f * GlobalFontScale);
-        if (ImGui.SliderInt("工房数量", ref ModuleConfig.WorkshopAmount, 0, 4))
-            SaveConfig(ModuleConfig);
-        
+        ImGui.SetNextItemWidth(150f * GlobalUIScale);
+        if (ImGui.SliderInt("工房数量", ref config.WorkshopAmount, 0, 4))
+            config.Save(this);
+
         ImGui.SameLine();
-        if (ImGui.Checkbox("忽略 4 号工房", ref ModuleConfig.IgnoreFourthWorkshop))
-            ModuleConfig.Save(ModuleManager.GetModule<AutoMJIWorkshopImport>());
+        if (ImGui.Checkbox("忽略 4 号工房", ref config.IgnoreFourthWorkshop))
+            config.Save(ModuleManager.Instance().GetModule<AutoMJIWorkshopImport>());
     }
 
-    private static void DrawBulkApplySection()
+    private void DrawBulkApplySection()
     {
-        ScaledDummy(12);
-        
+        ImGuiOm.ScaledDummy(12);
+
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), "批量应用");
-        
+
         using var indent = ImRaii.PushIndent();
-        
-        if (ImGui.Button("本周")) 
+
+        if (ImGui.Button("本周"))
             ApplyRecommendations(false);
-        
+
         ImGui.SameLine();
-        if (ImGui.Button("下周")) 
+        if (ImGui.Button("下周"))
             ApplyRecommendations(true);
     }
 
-    private static void DrawIndividualApplySection()
+    private void DrawIndividualApplySection()
     {
-        ScaledDummy(12);
-        
+        ImGuiOm.ScaledDummy(12);
+
         ImGui.TextColored(KnownColor.LightSkyBlue.ToVector4(), "单独应用");
-        
+
         ImGui.Separator();
 
         using var scrollSection = ImRaii.Child("ScrollableSection");
-        foreach (var (cycle, rec) in Recommendations.Enumerate())
+
+        foreach (var (cycle, rec) in recommendations.Enumerate())
         {
             ImGui.AlignTextToFramePadding();
             ImGui.TextUnformatted($"第 {cycle} 天:");
-            
+
             ImGui.SameLine();
-            if (ImGui.SmallButton($"{GetLoc("Apply")}##{cycle}"))
+            if (ImGui.SmallButton($"{Lang.Get("Apply")}##{cycle}"))
                 ApplyRecommendationToCurrentCycle(rec);
 
             DrawWorkshopTable(cycle, rec);
         }
     }
 
-    private static void DrawWorkshopTable(int cycle, DayAssignment rec)
+    private void DrawWorkshopTable(int cycle, DayAssignment rec)
     {
-        const ImGuiTableFlags tableFlags = ImGuiTableFlags.RowBg | ImGuiTableFlags.NoKeepColumnsVisible;
+        const ImGuiTableFlags TABLE_FLAGS = ImGuiTableFlags.RowBg | ImGuiTableFlags.NoKeepColumnsVisible;
 
-        using var outerTable = ImRaii.Table($"table_{cycle}", rec.Workshops.Count, tableFlags);
+        using var outerTable = ImRaii.Table($"table_{cycle}", rec.Workshops.Count, TABLE_FLAGS);
         if (!outerTable) return;
 
         SetupTableColumns(rec.Workshops.Count);
@@ -173,6 +168,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
 
         ImGui.TableNextRow();
         var workshopLimit = CalculateWorkshopLimit(rec.Workshops.Count);
+
         for (var i = 0; i < workshopLimit; ++i)
         {
             ImGui.TableNextColumn();
@@ -186,8 +182,8 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             ImGui.TableSetupColumn($"工房 {i + 1}");
     }
 
-    private static int CalculateWorkshopLimit(int workshopCount) 
-        => workshopCount - (ModuleConfig.IgnoreFourthWorkshop && workshopCount > 1 ? 1 : 0);
+    private int CalculateWorkshopLimit(int workshopCount) => 
+        workshopCount - (config.IgnoreFourthWorkshop && workshopCount > 1 ? 1 : 0);
 
     private static void DrawWorkshopContent(WorkshopAssignment workshop)
     {
@@ -201,7 +197,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         if (!innerTable) return;
 
         ImGui.TableSetupColumn("物品", ImGuiTableColumnFlags.WidthFixed);
-        
+
         foreach (var slot in workshop.Slots)
         {
             ImGui.TableNextRow();
@@ -214,64 +210,65 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
 
     private static void DrawItemIcon(uint craftObjectID)
     {
-        if (!OriginalCraftItemsSheet.TryGetValue(craftObjectID, out var row)) return;
-        var iconSize = ImGui.GetTextLineHeight() * 1.5f;
-        var iconSizeVec = new Vector2(iconSize, iconSize);
-        var craftworkItemIcon = row.Item.Value.Icon;
-        ImGui.Image(DService.Instance().Texture.GetFromGameIcon(new(craftworkItemIcon)).GetWrapOrEmpty().Handle,
-            iconSizeVec, Vector2.Zero, Vector2.One);
+        if (!LuminaGetter.TryGetRow(craftObjectID, out MJICraftworksObject row)) return;
+
+        ImGui.Image
+        (
+            DService.Instance().Texture.GetFromGameIcon(new(row.Item.Value.Icon)).GetWrapOrEmpty().Handle,
+            new(ImGui.GetTextLineHeight() * 1.5f),
+            Vector2.Zero,
+            Vector2.One
+        );
     }
 
     private static void DrawItemName(uint craftObjectID)
     {
-        if (!OriginalCraftItemsSheet.TryGetValue(craftObjectID, out var row)) return;
+        if (!LuminaGetter.TryGetRow(craftObjectID, out MJICraftworksObject row)) return;
         ImGui.TextUnformatted(row.Item.Value.Name.ToString());
     }
 
     private static string RemoveMJIItemPrefix(string name) =>
         name switch
         {
-            var n when n.StartsWith("海岛") => n[2..],
-            var n when n.StartsWith("开拓工房") => n[4..],
-            var n when n.StartsWith("Isleworks ") => n[10..],
-            var n when n.StartsWith("Isleberry ") => n[10..],
-            var n when n.StartsWith("Islefish ") => n[9..],
-            var n when n.StartsWith("Island ") => n[7..],
-            _ => name
+            _ when name.StartsWith("海岛")   => name[2..],
+            _ when name.StartsWith("开拓工房") => name[4..],
+            _ when name.StartsWith("海島")   => name[2..],
+            _ when name.StartsWith("開拓工房") => name[4..],
+            _                              => name
         };
 
-    private static void ApplyRecommendations(bool nextWeek)
+    private void ApplyRecommendations(bool nextWeek)
     {
         try
         {
             var agentData = AgentMJICraftSchedule.Instance()->Data;
-            if (Recommendations.Schedules.Count > 7)
-                throw new Exception($"单周内天数超过七天 (现: {Recommendations.Schedules.Count})");
+            if (recommendations.Schedules.Count > 7)
+                throw new Exception($"单周内天数超过七天 (现: {recommendations.Schedules.Count})");
 
-            var forbiddenCycles   = nextWeek ? 0 : (1u << (agentData->CycleInProgress + 1)) - 1;
+            var forbiddenCycles   = nextWeek ? 0 : (1u << agentData->CycleInProgress + 1) - 1;
             var currentRestCycles = nextWeek ? agentData->RestCycles >> 7 : agentData->RestCycles & 0x7F;
 
             HandleRestCycles(currentRestCycles, forbiddenCycles, nextWeek);
 
-            foreach (var (c, r) in Recommendations.Enumerate())
+            foreach (var (c, r) in recommendations.Enumerate())
                 ApplyRecommendation(c - 1 + (nextWeek ? 7 : 0), r);
 
             ResetCurrentCycleToRefreshUI();
-            
-            NotificationSuccess($"已成功将数据应用至工房 {(nextWeek ? "下周" : "本周")} 的生产计划中");
+
+            NotifyHelper.Instance().NotificationSuccess($"已成功将数据应用至工房 {(nextWeek ? "下周" : "本周")} 的生产计划中");
         }
         catch (Exception ex)
         {
-            NotificationError($"{GetLoc("Error")}: {ex.Message}");
+            NotifyHelper.Instance().NotificationError($"{Lang.Get("Error")}: {ex.Message}");
         }
     }
 
-    private static void HandleRestCycles(uint currentRestCycles, uint forbiddenCycles, bool nextWeek)
+    private void HandleRestCycles(uint currentRestCycles, uint forbiddenCycles, bool nextWeek)
     {
-        if ((currentRestCycles & Recommendations.CyclesMask) == 0) return;
+        if ((currentRestCycles & recommendations.CyclesMask) == 0) return;
 
-        var freeCycles = ~Recommendations.CyclesMask & 0x7F;
-        var rest = (1u << (31 - BitOperations.LeadingZeroCount(freeCycles))) | 1;
+        var freeCycles = ~recommendations.CyclesMask & 0x7F;
+        var rest       = 1u << 31 - BitOperations.LeadingZeroCount(freeCycles) | 1;
 
         if (BitOperations.PopCount(rest) != 2)
             throw new Exception("休息日获取失败");
@@ -281,37 +278,43 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             throw new Exception("无法将已完成日期设置为休息日");
 
         var newRest = nextWeek
-            ? (rest << 7) | (AgentMJICraftSchedule.Instance()->Data->RestCycles & 0x7F)
-            : (AgentMJICraftSchedule.Instance()->Data->RestCycles & 0x3F80) | rest;
+                          ? rest << 7 | AgentMJICraftSchedule.Instance()->Data->RestCycles & 0x7F
+                          : AgentMJICraftSchedule.Instance()->Data->RestCycles             & 0x3F80 | rest;
         SetRestCycles(newRest);
     }
 
-    private static void ApplyRecommendation(int cycle, DayAssignment assignment)
+    private void ApplyRecommendation(int cycle, DayAssignment assignment)
     {
-        var maxWorkshops = ModuleConfig.WorkshopAmount;
+        var maxWorkshops = config.WorkshopAmount;
+
         for (var workshop = 0; workshop < maxWorkshops; workshop++)
         {
-            if (ModuleConfig.IgnoreFourthWorkshop && workshop == maxWorkshops - 1) continue;
+            if (config.IgnoreFourthWorkshop && workshop == maxWorkshops - 1) continue;
 
-            var workshopRec = workshop < assignment.Workshops.Count 
-                ? assignment.Workshops[workshop] 
-                : assignment.Workshops[0];
+            var workshopRec = workshop < assignment.Workshops.Count
+                                  ? assignment.Workshops[workshop]
+                                  : assignment.Workshops[0];
 
             foreach (var slotRec in workshopRec.Slots)
                 ScheduleItemToWorkshop(slotRec.CraftObjectID, slotRec.Slot, cycle, workshop);
         }
     }
 
-    private static void ApplyRecommendationToCurrentCycle(DayAssignment rec)
+    private void ApplyRecommendationToCurrentCycle(DayAssignment rec)
     {
         var cycle = AgentMJICraftSchedule.Instance()->Data->CycleDisplayed;
         ApplyRecommendation(cycle, rec);
         ResetCurrentCycleToRefreshUI();
     }
 
-    public static void ScheduleItemToWorkshop(uint objectID, int startingHour, int cycle, int workshop)
-        => MJIManager.Instance()->ScheduleCraft((ushort)objectID, (byte)((startingHour + 17) % 24), (byte)cycle,
-                                                (byte)workshop);
+    public static void ScheduleItemToWorkshop(uint objectID, int startingHour, int cycle, int workshop) => 
+        MJIManager.Instance()->ScheduleCraft
+        (
+            (ushort)objectID,
+            (byte)((startingHour + 17) % 24),
+            (byte)cycle,
+            (byte)workshop
+        );
 
     public static void SetRestCycles(uint mask)
     {
@@ -334,21 +337,18 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             AddonEvent.PreFinalize => false,
             _                      => Overlay.IsOpen
         };
-
-    protected override void Uninit() => 
-        DService.Instance().AddonLifecycle.UnregisterListener(OnAddon);
-
-    private class Config : ModuleConfiguration
+    
+    private class Config : ModuleConfig
     {
         public bool IgnoreFourthWorkshop;
         public int  WorkshopAmount = 4;
     }
 
-    public class Assignments
+    private class Assignments
     {
-        private readonly List<DayAssignment> schedules = [];
-        public uint CyclesMask { get; private set; }
-        public IReadOnlyList<DayAssignment> Schedules => schedules;
+        private readonly List<DayAssignment>          schedules = [];
+        public           uint                         CyclesMask { get; private set; }
+        public           IReadOnlyList<DayAssignment> Schedules  => schedules;
 
         public bool Empty => Schedules.Count == 0;
 
@@ -359,11 +359,13 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             if (cycle is < 1 or > 7)
                 throw new ArgumentOutOfRangeException($"无效的天数指定: {cycle}");
 
-            var mask = 1u << (cycle - 1);
+            var mask = 1u << cycle - 1;
+
             if ((CyclesMask & mask) != 0)
             {
                 // 如果已经有安排，则更新现有的安排
                 var existingSchedule = schedules.FirstOrDefault(s => s.Cycle == cycle);
+
                 if (existingSchedule != null)
                 {
                     existingSchedule.MergeWith(schedule);
@@ -389,9 +391,9 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
 
         public static Assignments Parse(string input)
         {
-            var result = new Assignments();
-            var lines = input.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            var currentCycle = 0;
+            var result        = new Assignments();
+            var lines         = input.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            var currentCycle  = 0;
             var currentDayRec = new DayAssignment();
 
             foreach (var line in lines)
@@ -402,9 +404,9 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
 
                     if (cycle != currentCycle)
                     {
-                        if (currentCycle > 0) 
+                        if (currentCycle > 0)
                             result.Add(currentCycle, currentDayRec);
-                        currentCycle = cycle;
+                        currentCycle  = cycle;
                         currentDayRec = new DayAssignment();
                     }
 
@@ -415,12 +417,12 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
                 }
                 catch (Exception ex)
                 {
-                    NotificationError(ex.Message, "解析时发生错误");
-                    Error("解析时发生错误:", ex);
+                    NotifyHelper.Instance().NotificationError(ex.Message, "解析时发生错误");
+                    DLog.Error("解析时发生错误:", ex);
                 }
             }
 
-            if (currentCycle > 0) 
+            if (currentCycle > 0)
                 result.Add(currentCycle, currentDayRec);
 
             return result;
@@ -432,6 +434,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             if (restMatch.Success) return (int.Parse(restMatch.Groups[1].Value), 4, "休息");
 
             var normalMatch = Regex.Match(line, @"D(\d+)[:：]\s*(\d+)×(.+)");
+
             if (normalMatch.Success)
             {
                 return (int.Parse(normalMatch.Groups[1].Value),
@@ -443,13 +446,13 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
         }
     }
 
-    public class DayAssignment
+    private class DayAssignment
     {
-        private readonly List<WorkshopAssignment> workshops = [];
-        public IReadOnlyList<WorkshopAssignment> Workshops => workshops;
-        public bool Empty => workshops.Count == 0;
-        public int Cycle { get; set; }
-        public bool IsRest { get; private set; }
+        private readonly List<WorkshopAssignment>          workshops = [];
+        public           IReadOnlyList<WorkshopAssignment> Workshops => workshops;
+        public           bool                              Empty     => workshops.Count == 0;
+        public           int                               Cycle     { get; set; }
+        public           bool                              IsRest    { get; private set; }
 
         public void SetRest()
         {
@@ -461,7 +464,7 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
 
         public void AddWorkshops(int prefix, string tasks)
         {
-            if (IsRest) 
+            if (IsRest)
                 throw new InvalidOperationException("无法将工房安排添加至休息日");
 
             var workshop = WorkshopAssignment.Create(tasks);
@@ -487,32 +490,30 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
             workshops.AddRange(other.Workshops);
 
             // 确保工房总数不超过 4
-            while (workshops.Count > 4) 
+            while (workshops.Count > 4)
                 workshops.RemoveAt(workshops.Count - 1);
         }
 
         public IEnumerable<(int workshop, WorkshopAssignment rec)> Enumerate(int maxWorkshops)
         {
-            if (Empty) 
+            if (Empty)
                 yield break;
 
             for (var i = 0; i < maxWorkshops; i++)
-            {
                 if (i < workshops.Count)
                     yield return (i, workshops[i]);
                 // 工房数量不足 -> 使用最后一个工房的安排
                 else
                     yield return (i, workshops[^1]);
-            }
         }
     }
 
-    public class WorkshopAssignment
+    private partial class WorkshopAssignment
     {
-        public List<SlotRec> Slots { get; } = [];
-        public bool IsRest { get; private set; }
+        public List<SlotRec> Slots  { get; } = [];
+        public bool          IsRest { get; private set; }
 
-        public void Add(int slot, uint craftObjectID) => 
+        public void Add(int slot, uint craftObjectID) =>
             Slots.Add(new SlotRec(slot, craftObjectID));
 
         public static WorkshopAssignment Create(string tasks)
@@ -525,19 +526,20 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
                 return workshop;
             }
 
-            var items = Regex.Split(tasks, @",\s*|、");
-            var slot = 0;
+            var items = ItemNameRegex().Split(tasks);
+            var slot  = 0;
 
             foreach (var item in items)
             {
                 var craftObject = TryParseItem(item);
+
                 if (craftObject != null)
                 {
                     workshop.Add(slot, craftObject.Value.RowId);
                     slot += craftObject.Value.CraftingTime;
                 }
                 else
-                    NotificationWarning($"无法找到物品数据: {item}");
+                    NotifyHelper.Instance().NotificationWarning($"无法找到物品数据: {item}");
             }
 
             return workshop;
@@ -547,13 +549,36 @@ public unsafe class AutoMJIWorkshopImport : DailyModuleBase
 
         private static MJICraftworksObject? TryParseItem(string itemName)
         {
-            var matchingItems = ItemNameMap.Where(kvp => kvp.Key.Contains(itemName, StringComparison.OrdinalIgnoreCase))
-                                           .OrderBy(kvp => kvp.Key.Length)
-                                           .ToList();
+            var matchingItems = ItemNameMap
+                                .Where(kvp => kvp.Key.Contains(itemName, StringComparison.OrdinalIgnoreCase))
+                                .OrderBy(kvp => kvp.Key.Length)
+                                .ToList();
 
             return matchingItems.FirstOrDefault().Value;
         }
+
+        [GeneratedRegex(@",\s*|、")]
+        private static partial Regex ItemNameRegex();
     }
 
-    public readonly record struct SlotRec(int Slot, uint CraftObjectID);
+    private readonly record struct SlotRec
+    (
+        int  Slot,
+        uint CraftObjectID
+    );
+    
+    #region 常量
+
+    private static readonly FrozenDictionary<string, MJICraftworksObject> ItemNameMap =
+        LuminaGetter.Get<MJICraftworksObject>()
+                    .Where(x => x.Item.RowId != 0 && x.Item.IsValid)
+                    .ToDictionary(x => x.RowId, x => x).Values
+                    .ToDictionary
+                    (
+                        r => RemoveMJIItemPrefix(r.Item.Value.Name.ToString() ?? string.Empty),
+                        r => r,
+                        StringComparer.OrdinalIgnoreCase
+                    ).ToFrozenDictionary();
+
+    #endregion
 }

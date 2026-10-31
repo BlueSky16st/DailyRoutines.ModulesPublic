@@ -1,39 +1,38 @@
-using System;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Infos;
-using DailyRoutines.Managers;
+using DailyRoutines.Common.Info.Abstractions;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
 using Dalamud.Game.Gui.ContextMenu;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using Lumina.Excel.Sheets;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class CopyItemNameContextMenu : DailyModuleBase
+public class CopyItemNameContextMenu : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("CopyItemNameContextMenuTitle"),
-        Description = GetLoc("CopyItemNameContextMenuDescription"),
-        Category    = ModuleCategories.System,
+        Title       = Lang.Get("CopyItemNameContextMenuTitle"),
+        Description = Lang.Get("CopyItemNameContextMenuDescription"),
+        Category    = ModuleCategory.System,
         Author      = ["Nukoooo"]
     };
-    
+
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
 
-    private static readonly string CopyItemNameString = LuminaWrapper.GetAddonText(159);
-    private static readonly string GlamoursString     = LuminaGetter.GetRow<CircleActivity>(18)!.Value.Name.ToString();
+    private readonly CopyItemNameMenuItem menuItem        = new(CopyItemNameString);
+    private readonly CopyItemNameMenuItem glamourMenuItem = new($"{CopyItemNameString} ({GlamoursString})");
 
-    private static readonly CopyItemNameMenuItem MenuItem        = new(CopyItemNameString);
-    private static readonly CopyItemNameMenuItem GlamourMenuItem = new($"{CopyItemNameString} ({GlamoursString})");
-
-    protected override void Init() => 
+    protected override void Init() =>
         DService.Instance().ContextMenu.OnMenuOpened += OnContextMenuOpened;
 
-    protected override void Uninit() => 
+    protected override void Uninit() =>
         DService.Instance().ContextMenu.OnMenuOpened -= OnContextMenuOpened;
 
-    private static unsafe void OnContextMenuOpened(IMenuOpenedArgs args)
+    private unsafe void OnContextMenuOpened(IMenuOpenedArgs args)
     {
         var type = args.MenuType;
 
@@ -41,15 +40,15 @@ public class CopyItemNameContextMenu : DailyModuleBase
         {
             if (args.Target is MenuTargetInventory { TargetItem: { ItemId: > 0 } item })
             {
-                MenuItem.SetRawItemID(item.ItemId);
+                menuItem.SetRawItemID(item.ItemId);
 
-                args.AddMenuItem(MenuItem.Get());
+                args.AddMenuItem(menuItem.Get());
 
                 if (item.GlamourId == 0)
                     return;
 
-                GlamourMenuItem.SetRawItemID(item.GlamourId);
-                args.AddMenuItem(GlamourMenuItem.Get());
+                glamourMenuItem.SetRawItemID(item.GlamourId);
+                args.AddMenuItem(glamourMenuItem.Get());
             }
 
             return;
@@ -64,10 +63,10 @@ public class CopyItemNameContextMenu : DailyModuleBase
 
         var contextMenuCounts = contextMenu->EventParams[0].Int;
 
-        const int Start = 8;
-        var       end   = Start + contextMenuCounts;
+        const int START = 8;
+        var       end   = START + contextMenuCounts;
 
-        for (var i = Start; i < end; i++)
+        for (var i = START; i < end; i++)
         {
             var param = contextMenu->EventParams[i];
             var str   = param.GetValueAsString();
@@ -81,49 +80,58 @@ public class CopyItemNameContextMenu : DailyModuleBase
         var itemID = prismBoxItem?.RowId ?? ContextMenuItemManager.Instance().CurrentItemID;
         if (itemID == 0) return;
 
-        MenuItem.SetRawItemID(itemID);
-        args.AddMenuItem(MenuItem.Get());
+        menuItem.SetRawItemID(itemID);
+        args.AddMenuItem(menuItem.Get());
 
         var glamourID = ContextMenuItemManager.Instance().CurrentGlamourID;
         if (glamourID == 0) return;
 
-        GlamourMenuItem.SetRawItemID(glamourID);
-        args.AddMenuItem(GlamourMenuItem.Get());
+        glamourMenuItem.SetRawItemID(glamourID);
+        args.AddMenuItem(glamourMenuItem.Get());
     }
 
-    private sealed class CopyItemNameMenuItem(string name) : MenuItemBase
+    private sealed class CopyItemNameMenuItem
+    (
+        string name
+    ) : MenuItemBase
     {
+        private         uint   itemID;
         public override string Name       { get; protected set; } = name;
         public override string Identifier { get; protected set; } = nameof(CopyItemNameContextMenu);
-        
+
         protected override bool WithDRPrefix { get; set; } = true;
 
-        private uint ItemID;
-        
         protected override unsafe void OnClicked(IMenuItemClickedArgs args)
         {
             var itemName = string.Empty;
 
-            if (ItemID >= 2000000 && LuminaGetter.TryGetRow<EventItem>(ItemID, out var eventItem))
+            if (itemID >= 2000000 && LuminaGetter.TryGetRow<EventItem>(itemID, out var eventItem))
                 itemName = eventItem.Singular.ToString();
             else
             {
-                ItemID %= 500000;
+                itemID %= 500000;
 
-                if (LuminaGetter.TryGetRow<Item>(ItemID, out var item))
+                if (LuminaGetter.TryGetRow<Item>(itemID, out var item))
                     itemName = item.Name.ToString();
             }
 
             if (string.IsNullOrWhiteSpace(itemName))
                 return;
 
-            RaptureLogModule.Instance()->ShowLogMessageUInt(1632, ItemID);
+            RaptureLogModule.Instance()->ShowLogMessageUInt(1632, itemID);
 
             ImGui.SetClipboardText(itemName);
-            ItemID = 0;
+            itemID = 0;
         }
 
-        public void SetRawItemID(uint id) => 
-            ItemID = id;
+        public void SetRawItemID(uint id) =>
+            itemID = id;
     }
+    
+    #region 常量
+
+    private static readonly string CopyItemNameString = LuminaWrapper.GetAddonText(159);
+    private static readonly string GlamoursString     = LuminaGetter.GetRowOrDefault<CircleActivity>(18).Name.ToString();
+
+    #endregion
 }

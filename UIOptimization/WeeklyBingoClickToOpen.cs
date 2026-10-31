@@ -1,5 +1,6 @@
-using System.Linq;
-using DailyRoutines.Abstracts;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
 using Dalamud.Game.Addon.Events;
 using Dalamud.Game.Addon.Events.EventDataTypes;
 using Dalamud.Game.Addon.Lifecycle;
@@ -9,27 +10,29 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class WeeklyBingoClickToOpen : DailyModuleBase
+public class WeeklyBingoClickToOpen : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title       = GetLoc("WeeklyBingoClickToOpenTitle"),
-        Description = GetLoc("WeeklyBingoClickToOpenDescription"),
-        Category    = ModuleCategories.UIOptimization,
+        Title       = Lang.Get("WeeklyBingoClickToOpenTitle"),
+        Description = Lang.Get("WeeklyBingoClickToOpenDescription"),
+        Category    = ModuleCategory.UIOptimization,
         Author      = ["Due"]
     };
-
-    private static readonly IAddonEventHandle?[] eventHandles = new IAddonEventHandle?[16];
+    
+    private readonly IAddonEventHandle?[] eventHandles = new IAddonEventHandle?[16];
 
     protected override unsafe void Init()
     {
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "WeeklyBingo", OnAddon);
         DService.Instance().AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "WeeklyBingo", OnAddon);
 
-        if (WeeklyBingo->IsAddonAndNodesReady()) 
+        if (WeeklyBingo->IsAddonAndNodesReady())
             OnAddon(AddonEvent.PostSetup, null);
     }
 
@@ -39,27 +42,32 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
         OnAddon(AddonEvent.PreFinalize, null);
     }
 
-    private static unsafe void OnAddon(AddonEvent type, AddonArgs? args)
+    private unsafe void OnAddon(AddonEvent type, AddonArgs? args)
     {
-        foreach (var index in Enumerable.Range(0, 16))
+        switch (type)
         {
-            if (eventHandles[index] is { } handle)
-            {
-                DService.Instance().AddonEvent.RemoveEvent(handle);
-                eventHandles[index] = null;
-            }
-        }
+            case AddonEvent.PreFinalize:
+                foreach (var index in Enumerable.Range(0, 16))
+                {
+                    if (eventHandles[index] is { } handle)
+                    {
+                        DService.Instance().AddonEvent.RemoveEvent(handle);
+                        eventHandles[index] = null;
+                    }
+                }
+                break;
+            
+            case AddonEvent.PostSetup:
+                var addon = (AddonWeeklyBingo*)WeeklyBingo;
+                if (addon == null) return;
 
-        if (type != AddonEvent.PostSetup) return;
-
-        var addon = (AddonWeeklyBingo*)WeeklyBingo;
-        if (addon == null) return;
-
-        foreach (var index in Enumerable.Range(0, 16))
-        {
-            var dutySlot = addon->DutySlotList[index];
-            var handle   = DService.Instance().AddonEvent.AddEvent((nint)addon, (nint)dutySlot.DutyButton->OwnerNode, AddonEventType.ButtonClick, OnDutySlotClick);
-            eventHandles[index] = handle;
+                foreach (var index in Enumerable.Range(0, 16))
+                {
+                    var dutySlot = addon->DutySlotList[index];
+                    var handle   = DService.Instance().AddonEvent.AddEvent((nint)addon, (nint)dutySlot.DutyButton->OwnerNode, AddonEventType.ButtonClick, OnDutySlotClick);
+                    eventHandles[index] = handle;
+                }
+                break;
         }
     }
 
@@ -72,9 +80,9 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
         if (agent == null) return;
 
         // 副本内无法打开
-        if (BoundByDuty) return;
-        
-        var tileIndex      = (int)dutyButtonNode->NodeId - 12;
+        if (DService.Instance().Condition.IsBoundByDuty) return;
+
+        var tileIndex    = (int)dutyButtonNode->NodeId - 12;
         var selectedTask = PlayerState.Instance()->GetWeeklyBingoTaskStatus(tileIndex);
         var bingoRowID   = PlayerState.Instance()->WeeklyBingoOrderData[tileIndex];
 
@@ -96,7 +104,7 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
             54 => 7,
             // 水晶冲突 (练习赛)
             52 => 40,
-            _  => 0,
+            _  => 0
         };
 
         return rouletteRowID != 0;
@@ -127,9 +135,12 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
                      ? 56
                      : LuminaGetter.Get<ContentFinderCondition>()
                                    .Where(m => m.ContentType.RowId is 2)
-                                   .Where(m => m.ClassJobLevelRequired >= bingoDataID -
-                                               (bingoDataID > 50 ? 9 : 49) &&
-                                               m.ClassJobLevelRequired <= bingoDataID - 1)
+                                   .Where
+                                   (m => m.ClassJobLevelRequired >=
+                                         bingoDataID -
+                                         (bingoDataID > 50 ? 9 : 49) &&
+                                         m.ClassJobLevelRequired <= bingoDataID - 1
+                                   )
                                    .OrderBy(row => row.SortKey)
                                    .FirstOrDefault().RowId,
             // 挖宝, PVP, 深宫
@@ -232,16 +243,20 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
                 // 51-59/61-69/71-79 级迷宫
                 79 => LuminaGetter.Get<ContentFinderCondition>()
                                   .Where(m => m.ContentType.RowId is 2)
-                                  .Where(m => m.ClassJobLevelRequired is >= 51 and <= 79 &&
-                                              m.ClassJobLevelRequired % 10 != 0)
+                                  .Where
+                                  (m => m.ClassJobLevelRequired is >= 51 and <= 79 &&
+                                        m.ClassJobLevelRequired % 10 != 0
+                                  )
                                   .Where(m => m.ClassJobLevelRequired % 10 != 0)
                                   .OrderBy(row => row.SortKey)
                                   .FirstOrDefault().RowId,
                 // 81-89/91-99 级迷宫
                 99 => LuminaGetter.Get<ContentFinderCondition>()
                                   .Where(m => m.ContentType.RowId is 2)
-                                  .Where(m => m.ClassJobLevelRequired is >= 81 and <= 99 &&
-                                              m.ClassJobLevelRequired % 10 != 0)
+                                  .Where
+                                  (m => m.ClassJobLevelRequired is >= 81 and <= 99 &&
+                                        m.ClassJobLevelRequired % 10 != 0
+                                  )
                                   .OrderBy(row => row.SortKey)
                                   .FirstOrDefault().RowId,
                 _ => 0
@@ -251,12 +266,12 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
             {
                 60 => LuminaGetter.Get<ContentFinderCondition>()
                                   .Where(m => m.ContentType.RowId is 2)
-                                  .Where(m => m.ClassJobLevelRequired is (50 or 60))
+                                  .Where(m => m.ClassJobLevelRequired is 50 or 60)
                                   .OrderBy(row => row.SortKey)
                                   .FirstOrDefault().RowId,
                 80 => LuminaGetter.Get<ContentFinderCondition>()
                                   .Where(m => m.ContentType.RowId is 2)
-                                  .Where(m => m.ClassJobLevelRequired is (70 or 80))
+                                  .Where(m => m.ClassJobLevelRequired is 70 or 80)
                                   .OrderBy(row => row.SortKey)
                                   .FirstOrDefault().RowId,
                 90 => LuminaGetter.Get<ContentFinderCondition>()
@@ -315,11 +330,11 @@ public class WeeklyBingoClickToOpen : DailyModuleBase
                                    .FirstOrDefault().RowId,
                 _ => 0
             },
-            _ => 0,
+            _ => 0
         };
 
         if (bingoDataRow.Type == 0 && !UIState.IsInstanceContentUnlocked(bingoDataID))
-            NotificationError(GetLoc("WeeklyBingoClickToOpen-UnlockError")); // 还没有解锁该副本
+            NotifyHelper.Instance().NotificationError(Lang.Get("WeeklyBingoClickToOpen-UnlockError")); // 还没有解锁该副本
 
         return dutyRowID != 0;
     }

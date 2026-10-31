@@ -1,57 +1,43 @@
-using System;
-using System.Linq;
-using DailyRoutines.Abstracts;
-using Dalamud.Game.Text;
-using Dalamud.Game.Text.SeStringHandling;
+using System.Collections.Frozen;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
+using DailyRoutines.Extensions;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class AutoNotifyRecruitmentEnd : DailyModuleBase
+public class AutoNotifyRecruitmentEnd : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
-        Title = GetLoc("AutoNotifyRecruitmentEndTitle"),
-        Description = GetLoc("AutoNotifyRecruitmentEndDescription"),
-        Category = ModuleCategories.Notice,
+        Title       = Lang.Get("AutoNotifyRecruitmentEndTitle"),
+        Description = Lang.Get("AutoNotifyRecruitmentEndDescription"),
+        Category    = ModuleCategory.Notice
     };
-    
+
     public override ModulePermission Permission { get; } = new() { AllDefaultEnabled = true };
 
-    private static readonly string[] ValidStrings =
-    [
-        "招募队员结束",
-        "Party recruitment ended",
-        "パーティ募集の人数を満たしたため終了します。"
-    ];
+    protected override void Init() =>
+        LogMessageManager.Instance().RegPost(OnLogMessage);
 
-    protected override void Init() => 
-        DService.Instance().Chat.ChatMessage += OnChatMessage;
+    protected override void Uninit() =>
+        LogMessageManager.Instance().Unreg(OnLogMessage);
 
-    private static void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool ishandled)
+    private static void OnLogMessage(uint logMessageID, LogMessageQueueItem item)
     {
-        if (type != XivChatType.SystemMessage) return;
-        if (BoundByDuty) return;
+        if (!ValidLogMessages.Contains(logMessageID)) return;
 
-        var content = message.TextValue;
-        if (!ValidStrings.Any(x => content.Contains(x, StringComparison.OrdinalIgnoreCase))) return;
-
-        string[] parts = [];
-        if (content.Contains('，'))
-            parts = content.Split(["，"], StringSplitOptions.RemoveEmptyEntries);
-        else if (content.Contains('.'))
-            parts = content.Split(["."], StringSplitOptions.RemoveEmptyEntries);
-
-        if (parts is { Length: > 1 })
-        {
-            NotificationInfo(parts[1], parts[0]);
-            Speak(content);
-            return;
-        }
-
-        NotificationInfo(content);
-        Speak(content);
+        var content = LuminaWrapper.GetLogMessageText(logMessageID);
+        NotifyHelper.Instance().NotificationInfo(content);
+        NotifyHelper.Speak(content);
     }
+    
+    #region 常量
 
-    protected override void Uninit() => 
-        DService.Instance().Chat.ChatMessage -= OnChatMessage;
+    private static readonly FrozenSet<uint> ValidLogMessages = [983, 984, 985, 986, 7451, 7452];
+
+    #endregion
 }
