@@ -1,6 +1,7 @@
 using DailyRoutines.Common.Module.Abstractions;
 using DailyRoutines.Common.Module.Enums;
 using DailyRoutines.Common.Module.Models;
+using Dalamud.Game.DutyState;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using OmenTools.OmenService;
 using OmenTools.Threading.TaskHelper;
@@ -51,19 +52,19 @@ public class AutoTankStanceEnhanced : ModuleBase
         base.Uninit();
     }
 
-    private void OnDutyRecommenced(object? sender, ushort e)
+    private void OnDutyRecommenced(IDutyStateEventArgs args)
     {
         TaskHelper.Abort();
         TaskHelper.Enqueue(CheckCurrentJob);
     }
 
-    private void OnClassJobChanged(uint classJobId)
+    private void OnClassJobChanged(uint classJobID)
     {
         TaskHelper.DelayNext(1000);
         TaskHelper.Enqueue(CheckCurrentJob);
     }
 
-    private void LevelChange(uint classJobId, uint level)
+    private void LevelChange(uint classJobID, uint level)
     {
         TaskHelper.DelayNext(1000);
         TaskHelper.Enqueue(CheckCurrentJob);

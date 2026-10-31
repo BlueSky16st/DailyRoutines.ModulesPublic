@@ -4,10 +4,11 @@ using DailyRoutines.Common.Module.Enums;
 using DailyRoutines.Common.Module.Models;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
-using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using OmenTools.Dalamud.Services.Game.Object.Abstractions.ObjectKinds;
 using OmenTools.ImGuiOm.Widgets.Combos;
 using OmenTools.Interop.Game.Lumina;
 using OmenTools.OmenService;
+using Control = FFXIVClientStructs.FFXIV.Client.Game.Control.Control;
 
 namespace DailyRoutines.ModulesPublic;
 
@@ -23,7 +24,7 @@ public unsafe class ActionMessenger : ModuleBase
 
     private static ModuleStorage ModuleConfig = null!;
 
-    private static string GetStr(string msg, string? id = null) => GetLoc(msg) + (id != null ? $"##am-{id}" : "");
+    private static string GetStr(string msg, string? id = null) => msg + (id != null ? $"##am-{id}" : "");
 
     #region Init
 
@@ -170,9 +171,9 @@ public unsafe class ActionMessenger : ModuleBase
                     if (!string.IsNullOrWhiteSpace(newConfigName) && !configNames.Contains(newConfigName))
                     {
                         configNames.Add(newConfigName);
+                        ModuleConfig.Configurations[newConfigName] = new ConfigData();
                         showAddDialog = false;
                         newConfigName = "";
-                        ModuleConfig.Configurations[newConfigName] = new ConfigData();
                         SaveConfig(ModuleConfig);
                     }
                 }
@@ -267,8 +268,9 @@ public unsafe class ActionMessenger : ModuleBase
                 if (ImGui.Button(GetStr("取消", "CancelRename"), new Vector2(80, 0)))
                     showRenameDialog = false;
 
-                ImGui.End();
             }
+
+            ImGui.End();
         }
     }
 
@@ -325,10 +327,10 @@ public unsafe class ActionMessenger : ModuleBase
 
             // 技能选择下拉多选框
             ImGui.TextColored(new Vector4(0.7f, 0.9f, 0.7f, 1.0f), GetStr("选择技能") + ":");
-            ActionSelect.SelectedActionIDs = configData.SelectedActionIDs.ToHashSet();
+            ActionSelect.SelectedIDs = configData.SelectedActionIDs.ToHashSet();
             if (ActionSelect.DrawCheckbox())
             {
-                configData.SelectedActionIDs = ActionSelect.SelectedActionIDs.ToList();
+                configData.SelectedActionIDs = ActionSelect.SelectedIDs.ToList();
                 SaveConfig(ModuleConfig);
             }
 
@@ -416,10 +418,10 @@ public unsafe class ActionMessenger : ModuleBase
         nint result,
         IBattleChara player,
         ActionType type,
-        uint actionId,
+        uint actionID,
         nint a4,
         float rotation,
-        float a6) => ProcessAction(true, type, actionId, player);
+        float a6) => ProcessAction(true, type, actionID, player);
 
     public static void PostCharacterStartCastV2(
         ref bool isPrevented,
@@ -434,46 +436,46 @@ public unsafe class ActionMessenger : ModuleBase
         ref bool isPrevented,
         ref IBattleChara player,
         ref ActionType type,
-        ref uint actionId,
-        ref uint spellId,
-        ref GameObjectId animationTargetId,
+        ref uint actionID,
+        ref uint spellID,
+        ref GameObjectId animationTargetID,
         ref Vector3 location,
         ref float rotation,
         ref short lastUsedActionSequence,
         ref int animationVariation,
-        ref int ballistaEntityId) => ProcessAction(true, type, actionId);
+        ref int ballistaEntityID) => ProcessAction(true, type, actionID);
 
     private static void PostCharacterCompleteCast(
         nint result,
         IBattleChara player,
         ActionType type,
-        uint actionId,
-        uint spellId,
-        GameObjectId animationTargetId,
+        uint actionID,
+        uint spellID,
+        GameObjectId animationTargetID,
         Vector3 location,
         float rotation,
         short lastUsedActionSequence,
         int animationVariation,
-        int ballistaEntityId) => ProcessAction(true, type, actionId);
+        int ballistaEntityID) => ProcessAction(true, type, actionID);
 
     private static void PostUseAction(
         bool result,
         ActionType actionType,
-        uint actionId,
-        ulong targetId,
+        uint actionID,
+        ulong targetID,
         uint extraParam,
         ActionManager.UseActionMode queueState,
-        uint comboRouteId) => ProcessAction(result, actionType, actionId);
+        uint comboRouteID) => ProcessAction(result, actionType, actionID);
 
     private static void PostUseActionLocation(
         bool result,
         ActionType actionType,
-        uint actionId,
-        ulong targetId,
+        uint actionID,
+        ulong targetID,
         Vector3 location,
-        uint extraParam) => ProcessAction(result, actionType, actionId);
+        uint extraParam) => ProcessAction(result, actionType, actionID);
 
-    private static void ProcessAction(bool result, ActionType actionType, uint actionId, IBattleChara? player = null)
+    private static void ProcessAction(bool result, ActionType actionType, uint actionID, IBattleChara? player = null)
     {
         if (actionType != ActionType.Action || !result || !ModuleConfig.IsEnabled)
             return;
@@ -496,7 +498,7 @@ public unsafe class ActionMessenger : ModuleBase
         var matchingMessages = new List<string>();
         foreach (var config in ModuleConfig.Configurations.Values)
         {
-            if (config.IsEnabled && config.SelectedActionIDs.Contains(actionId) && config.Messages.Count > 0)
+            if (config.IsEnabled && config.SelectedActionIDs.Contains(actionID) && config.Messages.Count > 0)
             {
                 // 检查概率
                 if (random.Next(1, 101) > config.MessageProbability)
@@ -560,7 +562,7 @@ public unsafe class ActionMessenger : ModuleBase
         public const string Echo = "/e ";
     }
 
-    private class ModuleStorage : ModuleConfiguration
+    private class ModuleStorage : ModuleConfig
     {
         // 是否启用功能
         public bool IsEnabled { get; set; } = true;

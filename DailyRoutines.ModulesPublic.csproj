@@ -1,6 +1,7 @@
 <Project Sdk="Dalamud.CN.NET.Sdk/15.0.0">
 
     <PropertyGroup>
+        <AssemblyName>DailyRoutines.SunflowerDR</AssemblyName>
         <UseWindowsForms>true</UseWindowsForms>
         <ImplicitUsings>true</ImplicitUsings>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
@@ -42,10 +43,6 @@
         </Reference>
         <Reference Include="DailyRoutines.Common">
             <HintPath>$(DailyRoutinesPath)\DailyRoutines.Common.dll</HintPath>
-            <Private>false</Private>
-        </Reference>
-        <Reference Include="EdgeTTS">
-            <HintPath>$(DailyRoutinesPath)\EdgeTTS.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="KamiToolKit">
