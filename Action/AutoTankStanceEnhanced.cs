@@ -1,18 +1,19 @@
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using DailyRoutines.Abstracts;
-using DailyRoutines.Managers;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using OmenTools.OmenService;
+using OmenTools.Threading.TaskHelper;
 
 namespace DailyRoutines.ModulesPublic;
 
-public class AutoTankStanceEnhanced : DailyModuleBase
+public class AutoTankStanceEnhanced : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
         Title = "切换坦克时自动盾姿",
         Description = "",
-        Category = ModuleCategories.Action,
+        Category = ModuleCategory.Action,
         Author = ["Hsin"]
     };
 

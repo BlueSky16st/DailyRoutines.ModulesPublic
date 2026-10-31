@@ -1,21 +1,23 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using DailyRoutines.Abstracts;
+using DailyRoutines.Common.Module.Abstractions;
+using DailyRoutines.Common.Module.Enums;
+using DailyRoutines.Common.Module.Models;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using OmenTools.ImGuiOm.Widgets.Combos;
+using OmenTools.Interop.Game.Lumina;
+using OmenTools.OmenService;
 
 namespace DailyRoutines.ModulesPublic;
 
-public unsafe class ActionMessenger : DailyModuleBase
+public unsafe class ActionMessenger : ModuleBase
 {
     public override ModuleInfo Info { get; } = new()
     {
         Title = "使用技能时发言",
         Description = "你可以配置在使用技能时发送消息到小队频道, 可以配置不同的消息, 我会在其中随机挑选一条进行发送",
-        Category = ModuleCategories.Action,
+        Category = ModuleCategory.Action,
         Author = ["Hsin"]
     };
 

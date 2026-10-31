@@ -32,7 +32,7 @@
     </ItemGroup>
 
     <PropertyGroup>
-        <DailyRoutinesPath>C:\Users\stxin\AppData\Roaming\XIVLauncherCN\installedPlugins\DailyRoutines\1.9.7.7\</DailyRoutinesPath>
+        <DailyRoutinesPath>C:\Users\stxin\AppData\Roaming\XIVLauncherCN\installedPlugins\DailyRoutines\2.2.5.5\</DailyRoutinesPath>
     </PropertyGroup>
     
     <ItemGroup>
@@ -104,6 +104,9 @@
         <Compile Remove="Action\AutoReplaceActionAnimation.cs" />
         <Compile Remove="Action\AutoRedirectDashActions.cs" />
         <Compile Remove="Action\AutoActionAlignCamera.cs" />
+        <Compile Remove="Action\AutoBroadcastActionHitInfo.cs" />
+        <Compile Remove="Action\AutoRedirectActionTarget.cs" />
+        <Compile Remove="Action\CustomActionCastRecastTime.cs" />
     </ItemGroup>
 
     <ItemGroup>
